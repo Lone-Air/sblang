@@ -1,0 +1,8 @@
+// Test loading module from same-named file
+load secondmodule;
+
+print("Loading secondmodule...\n");
+result = second_function();
+print("Second result: ");
+print(result);
+print("\n");

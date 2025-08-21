@@ -11,283 +11,285 @@
 #include "../bytecode/bytecode.h"
 #include <stdbool.h>
 
-#define VM_INITIAL_STACK_SIZE 1024      /* 初始操作数栈大小 */
-#define VM_INITIAL_CALL_STACK_SIZE 256  /* 初始调用栈深度 */
+#define VM_INITIAL_STACK_SIZE 1024      /* Initial operand stack size */
+#define VM_INITIAL_CALL_STACK_SIZE 256  /* Initial call stack depth */
 
-/* 值类型枚举 */
+/* Value type enumeration */
 typedef enum {
-    VAL_NULL,               /* 空值 */
-    VAL_NUMBER,             /* 数字类型 */
-    VAL_STRING,             /* 字符串类型 */
-    VAL_BOOL,               /* 布尔类型 */
-    VAL_FUNCTION,           /* 函数类型 */
-    VAL_NATIVE,             /* 原生函数类型 */
-    VAL_STRUCT,             /* 结构体定义类型 */
-    VAL_STRUCT_INSTANCE,    /* 结构体实例类型 */
-    VAL_LIST                /* 列表类型 */
+    VAL_NULL,               /* Null value */
+    VAL_NUMBER,             /* Number type */
+    VAL_STRING,             /* String type */
+    VAL_BOOL,               /* Boolean type */
+    VAL_FUNCTION,           /* Function type */
+    VAL_NATIVE,             /* Native function type */
+    VAL_STRUCT,             /* Struct definition type */
+    VAL_STRUCT_INSTANCE,    /* Struct instance type */
+    VAL_LIST                /* List type */
 } ValueType;
 
-/* 前向声明 */
+/* Forward declarations */
 typedef struct Value Value;
 typedef struct VM VM;
 
-/* 原生函数指针类型 */
+/* Native function pointer type */
 typedef Value (*NativeFunction)(VM* vm, Value* args, int arg_count);
 
-/* 函数结构 */
+/* Function structure */
 typedef struct {
-    char* name;             /* 函数名 */
-    size_t start_addr;      /* 函数起始地址 */
-    size_t param_count;     /* 参数数量 */
-    Value* locals;          /* 局部变量数组 */
-    size_t local_count;     /* 局部变量数量 */
+    char* name;             /* Function name */
+    size_t start_addr;      /* Function start address */
+    size_t param_count;     /* Parameter count */
+    Value* locals;          /* Local variables array */
+    size_t local_count;     /* Local variable count */
 } Function;
 
-/* 结构体定义 */
+/* Struct definition */
 typedef struct {
-    char* name;             /* 结构体名称 */
-    char** members;         /* 成员名称数组 */
-    size_t member_count;    /* 成员数量 */
+    char* name;             /* Struct name */
+    char** members;         /* Member names array */
+    size_t member_count;    /* Member count */
 } Struct;
 
-/* 结构体实例 */
+/* Struct instance */
 typedef struct {
-    Struct* struct_def;     /* 结构体定义 */
-    Value* members;         /* 成员值数组 */
+    Struct* struct_def;     /* Struct definition */
+    Value* members;         /* Member values array */
 } StructInstance;
 
-/* 列表结构 */
+/* List structure */
 typedef struct {
-    Value* items;           /* 元素数组 */
-    size_t count;           /* 当前元素数量 */
-    size_t capacity;        /* 容量 */
+    Value* items;           /* Elements array */
+    size_t count;           /* Current element count */
+    size_t capacity;        /* Capacity */
 } List;
 
-/* 值结构体 - 支持多种数据类型 */
+/* Value structure - supports multiple data types */
 struct Value {
-    ValueType type;         /* 值的类型 */
+    ValueType type;         /* Value type */
     union {
-        double number;              /* 数字值 */
-        char* string;               /* 字符串值 */
-        bool boolean;               /* 布尔值 */
-        Function* function;         /* 函数指针 */
-        NativeFunction native;      /* 原生函数指针 */
-        Struct* struct_def;         /* 结构体定义 */
-        StructInstance* instance;   /* 结构体实例 */
-        List* list;                 /* 列表指针 */
+        double number;              /* Numeric value */
+        char* string;               /* String value */
+        bool boolean;               /* Boolean value */
+        Function* function;         /* Function pointer */
+        NativeFunction native;      /* Native function pointer */
+        Struct* struct_def;         /* Struct definition */
+        StructInstance* instance;   /* Struct instance */
+        List* list;                 /* List pointer */
     } as;
 };
 
-/* 调用帧结构 */
+/* Call frame structure */
 typedef struct {
-    Function* function;     /* 当前函数 */
-    size_t return_addr;     /* 返回地址 */
-    Value* locals;          /* 局部变量 */
-    size_t local_count;     /* 局部变量数量 */
-    size_t stack_base;      /* 栈基址 */
+    Function* function;     /* Current function */
+    size_t return_addr;     /* Return address */
+    Value* locals;          /* Local variables */
+    size_t local_count;     /* Local variable count */
+    size_t stack_base;      /* Stack base address */
 } CallFrame;
 
-/* 变量结构 */
+/* Variable structure */
 typedef struct {
-    char* name;             /* 变量名 */
-    Value value;            /* 变量值 */
+    char* name;             /* Variable name */
+    Value value;            /* Variable value */
 } Variable;
 
-/* 变量表 */
+/* Variable table */
 typedef struct {
-    Variable* vars;         /* 变量数组 */
-    size_t count;           /* 变量数量 */
-    size_t capacity;        /* 容量 */
+    Variable* vars;         /* Variables array */
+    size_t count;           /* Variable count */
+    size_t capacity;        /* Capacity */
 } VariableTable;
 
-/* VM错误类型枚举 */
+/* VM error type enumeration */
 typedef enum {
-    VM_OK,                  /* 无错误 */
-    VM_RUNTIME_ERROR,       /* 运行时错误 */
-    VM_STACK_OVERFLOW,      /* 栈溢出 */
-    VM_STACK_UNDERFLOW,     /* 栈下溢 */
-    VM_UNDEFINED_VARIABLE,  /* 未定义变量 */
-    VM_TYPE_ERROR,          /* 类型错误 */
-    VM_DIVISION_BY_ZERO,    /* 除零错误 */
-    VM_INDEX_OUT_OF_BOUNDS, /* 索引越界 */
-    VM_UNDEFINED_FUNCTION,  /* 未定义函数 */
-    VM_ARGUMENT_MISMATCH,   /* 参数不匹配 */
-    VM_LOAD_ERROR,          /* 加载错误 */
-    VM_MEMORY_ERROR,        /* 内存错误 */
-    VM_INVALID_OPCODE,      /* 无效操作码 */
-    VM_UNDEFINED_MEMBER,    /* 未定义成员 */
-    VM_NOT_A_STRUCT         /* 非结构体类型 */
+    VM_OK,                  /* No error */
+    VM_RUNTIME_ERROR,       /* Runtime error */
+    VM_STACK_OVERFLOW,      /* Stack overflow */
+    VM_STACK_UNDERFLOW,     /* Stack underflow */
+    VM_UNDEFINED_VARIABLE,  /* Undefined variable */
+    VM_TYPE_ERROR,          /* Type error */
+    VM_DIVISION_BY_ZERO,    /* Division by zero */
+    VM_INDEX_OUT_OF_BOUNDS, /* Index out of bounds */
+    VM_UNDEFINED_FUNCTION,  /* Undefined function */
+    VM_ARGUMENT_MISMATCH,   /* Argument mismatch */
+    VM_LOAD_ERROR,          /* Load error */
+    VM_MEMORY_ERROR,        /* Memory error */
+    VM_INVALID_OPCODE,      /* Invalid opcode */
+    VM_UNDEFINED_MEMBER,    /* Undefined member */
+    VM_NOT_A_STRUCT         /* Not a struct type */
 } VMError;
 
-/* 加载的共享库信息 */
+/* Loaded shared library information */
 typedef struct {
-    void* handle;                   /* 动态库句柄 */
-    char* name;                     /* 库名称 */
+    void* handle;                   /* Dynamic library handle */
+    char* name;                     /* Library name */
 } LoadedLibrary;
 
-/* 虚拟机主结构 */
+/* Main VM structure */
 struct VM {
-    /* 指令相关 */
-    Instruction* instructions;      /* 指令数组 */
-    size_t instruction_count;       /* 指令数量 */
-    size_t pc;                      /* 程序计数器 */
-    
-    /* 操作数栈 */
-    Value* stack;                   /* 动态操作数栈 */
-    size_t stack_top;               /* 栈顶指针 */
-    size_t stack_capacity;          /* 操作数栈容量 */
-    
-    /* 调用栈 */
-    CallFrame* call_stack;          /* 动态调用栈 */
-    size_t call_depth;              /* 调用深度 */
-    size_t call_capacity;           /* 调用栈容量 */
-    
-    /* 变量表 */
-    VariableTable globals;          /* 全局变量表 */
-    VariableTable* locals;          /* 当前局部变量表 */
-    
-    /* 函数和结构体 */
-    Function* functions;            /* 函数表 */
-    size_t function_count;          /* 函数数量 */
-    Struct* structs;                /* 结构体表 */
-    size_t struct_count;            /* 结构体数量 */
-    
-    /* 加载的共享库 */
-    LoadedLibrary* loaded_libs;    /* 已加载的共享库数组 */
-    size_t loaded_lib_count;        /* 已加载的共享库数量 */
-    
-    /* 错误处理 */
-    VMError last_error;             /* 最后的错误类型 */
-    char* error_message;            /* 错误信息 */
-    
-    /* 运行状态 */
-    bool running;                   /* 运行标志 */
-    bool gc_enabled;                /* 垃圾回收标志 */
+    /* Instruction related */
+    Instruction* instructions;      /* Instructions array */
+    size_t instruction_count;       /* Instruction count */
+    size_t pc;                      /* Program counter */
+
+    /* Operand stack */
+    Value* stack;                   /* Dynamic operand stack */
+    size_t stack_top;               /* Stack top pointer */
+    size_t stack_capacity;          /* Operand stack capacity */
+
+    /* Call stack */
+    CallFrame* call_stack;          /* Dynamic call stack */
+    size_t call_depth;              /* Call depth */
+    size_t call_capacity;           /* Call stack capacity */
+
+    /* Variable table */
+    VariableTable globals;          /* Global variable table */
+    VariableTable* locals;          /* Current local variable table */
+
+    /* Functions and structs */
+    Function* functions;            /* Function table */
+    size_t function_count;          /* Function count */
+    Struct* structs;                /* Struct table */
+    size_t struct_count;            /* Struct count */
+
+    /* Loaded shared libraries */
+    LoadedLibrary* loaded_libs;    /* Loaded shared libraries array */
+    size_t loaded_lib_count;        /* Loaded shared libraries count */
+
+    /* Error handling */
+    VMError last_error;             /* Last error type */
+    char* error_message;            /* Error message */
+
+    /* Runtime status */
+    bool running;                   /* Running flag */
+    bool gc_enabled;                /* Garbage collection flag */
+
+    int end_pc;
 };
 
-/* 原生函数绑定结构 */
+/* Native function binding structure */
 typedef struct {
-    char* name;             /* 函数名 */
-    NativeFunction func;    /* 函数指针 */
+    char* name;             /* Function name */
+    NativeFunction func;    /* Function pointer */
 } NativeBinding;
 
-/* ========== VM管理函数 ========== */
+/* ========== VM Management Functions ========== */
 
-/* 创建VM实例 */
+/* Create VM instance */
 extern VM* create_vm();
 
-/* 销毁VM实例，释放所有资源 */
+/* Destroy VM instance, free all resources */
 extern void destroy_vm(VM* vm);
 
-/* ========== 栈操作函数 ========== */
+/* ========== Stack Operation Functions ========== */
 
-/* 将值压入栈 */
+/* Push value onto stack */
 extern void vm_push(VM* vm, Value value);
 
-/* 从栈顶弹出值 */
+/* Pop value from stack top */
 extern Value vm_pop(VM* vm);
 
-/* 查看栈顶元素（不弹出） */
+/* Peek at stack top element (without popping) */
 extern Value vm_peek(VM* vm, int distance);
 
-/* ========== 字节码加载函数 ========== */
+/* ========== Bytecode Loading Functions ========== */
 
-/* 从字节码生成器加载字节码 */
+/* Load bytecode from bytecode generator */
 extern bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen);
 
-/* 从文件加载字节码 */
+/* Load bytecode from file */
 extern bool vm_load_from_file(VM* vm, const char* filename);
 
-/* ========== 执行函数 ========== */
+/* ========== Execution Functions ========== */
 
-/* 执行字节码 */
+/* Execute bytecode */
 extern VMError vm_execute(VM* vm);
 
-/* 执行单条指令 */
+/* Execute single instruction */
 extern VMError vm_execute_instruction(VM* vm);
 
-/* 调用函数 */
+/* Call function */
 extern VMError vm_call_function(VM* vm, Function* func, int arg_count);
 
-/* ========== 原生函数管理 ========== */
+/* ========== Native Function Management ========== */
 
-/* 注册原生函数 */
+/* Register native function */
 extern void vm_register_native(VM* vm, const char* name, NativeFunction func);
 
-/* 从外部向VM栈推送值 */
+/* Push value to VM stack from external source */
 extern void vm_push_external(VM* vm, Value value);
 
-/* ========== 变量管理函数 ========== */
+/* ========== Variable Management Functions ========== */
 
-/* 获取变量值 */
+/* Get variable value */
 extern Value* vm_get_variable(VM* vm, const char* name);
 
-/* 设置变量值 */
+/* Set variable value */
 extern bool vm_set_variable(VM* vm, const char* name, Value value);
 
-/* 定义全局变量 */
+/* Define global variable */
 extern bool vm_define_global(VM* vm, const char* name, Value value);
 
-/* ========== 值创建函数 ========== */
+/* ========== Value Creation Functions ========== */
 
-/* 创建空值 */
+/* Create null value */
 extern Value create_null();
 
-/* 创建数字值 */
+/* Create numeric value */
 extern Value create_number(double num);
 
-/* 创建字符串值 */
+/* Create string value */
 extern Value create_string(const char* str);
 
-/* 创建布尔值 */
+/* Create boolean value */
 extern Value create_bool(bool b);
 
-/* 创建函数值 */
+/* Create function value */
 extern Value create_function(Function* func);
 
-/* 创建原生函数值 */
+/* Create native function value */
 extern Value create_native(NativeFunction func);
 
-/* 创建列表 */
+/* Create list */
 extern Value create_list();
 
-/* ========== 值操作函数 ========== */
+/* ========== Value Operation Functions ========== */
 
-/* 判断值是否为真 */
+/* Check if value is truthy */
 extern bool is_truthy(Value value);
 
-/* 判断两个值是否相等 */
+/* Check if two values are equal */
 extern bool values_equal(Value a, Value b);
 
-/* 复制值（深拷贝） */
+/* Copy value (deep copy) */
 extern Value copy_value(Value value);
 
-/* 释放值所占用的内存 */
+/* Free memory occupied by value */
 extern void free_value(Value value);
 
-/* ========== 错误处理函数 ========== */
+/* ========== Error Handling Functions ========== */
 
-/* 设置VM错误 */
+/* Set VM error */
 extern void vm_error(VM* vm, VMError error, const char* format, ...);
 
-/* 获取错误类型字符串 */
+/* Get error type string */
 extern const char* vm_error_string(VMError error);
 
-/* 打印栈内容（调试用） */
+/* Print stack contents (for debugging) */
 extern void vm_print_stack(VM* vm);
 
-/* 打印错误信息 */
+/* Print error information */
 extern void vm_print_error(VM* vm);
 
-/* ========== 垃圾回收函数 ========== */
+/* ========== Garbage Collection Functions ========== */
 
-/* 执行垃圾回收 */
+/* Perform garbage collection */
 extern void vm_gc_collect(VM* vm);
 
-/* 标记值（GC第一阶段） */
+/* Mark value (GC phase one) */
 extern void vm_gc_mark(VM* vm, Value value);
 
-/* 清除未标记的对象（GC第二阶段） */
+/* Sweep unmarked objects (GC phase two) */
 extern void vm_gc_sweep(VM* vm);
 
 #endif

@@ -1,0 +1,4 @@
+load testmodule;
+
+print("Loaded\n");
+print("Value: ", another_function(), '\n');

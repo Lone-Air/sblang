@@ -1,0 +1,7 @@
+/* Test module with same name as directory */
+print("Loading testmodule from testmodule.sb\n");
+
+function another_function() {
+    print("Another function from testmodule!\n");
+    return 100;
+}

@@ -1,0 +1,8 @@
+// Test main program
+load testmodule;
+
+print("Main program starting...\n");
+result = test_function();
+print("Result: ");
+print(result);
+print("\n");

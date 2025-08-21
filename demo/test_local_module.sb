@@ -1,0 +1,8 @@
+// Test fallback to original loading logic
+load localmodule;
+
+print("Loading local module...\n");
+result = local_function();
+print("Local result: ");
+print(result);
+print("\n");

@@ -1,0 +1,7 @@
+// This is a local module in current directory
+local_value = 200;
+
+function local_function() {
+    print("Hello from local module!\n");
+    return local_value;
+}

@@ -12,209 +12,209 @@
 #include "../dynarray/dynarray.h"
 #include <stdint.h>
 
-/* 动态数组结构，用于存储可变长度的数据 */
+/* Dynamic array structure for storing variable-length data */
 typedef struct {
-    void** items;       /* 数组元素指针 */
-    size_t count;       /* 当前元素数量 */
-    size_t capacity;    /* 数组容量 */
+    void** items;       /* Array element pointers */
+    size_t count;       /* Current number of elements */
+    size_t capacity;    /* Array capacity */
 } DynArray;
 
-/* 字节码操作码枚举 */
+/* Bytecode opcode enumeration */
 typedef enum {
-    OP_NOP = 0x00,      /* 空操作 */
-    
-    /* 栈操作指令 */
-    OP_PUSH_NUM,        /* 将数字压入栈 */
-    OP_PUSH_STR,        /* 将字符串压入栈 */
-    OP_PUSH_IDENT,      /* 将标识符压入栈 */
-    OP_PUSH_TRUE,       /* 将true压入栈 */
-    OP_PUSH_FALSE,      /* 将false压入栈 */
-    OP_PUSH_NULL,       /* 将null压入栈 */
-    
-    OP_POP,             /* 弹出栈顶元素 */
-    OP_DUP,             /* 复制栈顶元素 */
-    OP_SWAP,            /* 交换栈顶两个元素 */
-    
-    /* 算术运算指令 */
-    OP_ADD,             /* 加法 */
-    OP_SUB,             /* 减法 */
-    OP_MUL,             /* 乘法 */
-    OP_DIV,             /* 除法 */
-    OP_MOD,             /* 取模 */
-    OP_POW,             /* 幂运算 */
-    
-    /* 位运算指令 */
-    OP_BIT_AND,         /* 按位与 */
-    OP_BIT_OR,          /* 按位或 */
-    OP_BIT_XOR,         /* 按位异或 */
-    OP_BIT_NOT,         /* 按位取反 */
-    OP_BIT_LSHIFT,      /* 左移 */
-    OP_BIT_RSHIFT,      /* 右移 */
-    
-    /* 逻辑运算指令 */
-    OP_LOGIC_AND,       /* 逻辑与 */
-    OP_LOGIC_OR,        /* 逻辑或 */
-    OP_LOGIC_NOT,       /* 逻辑非 */
-    
-    /* 比较运算指令 */
-    OP_EQ,              /* 等于 */
-    OP_NEQ,             /* 不等于 */
-    OP_LT,              /* 小于 */
-    OP_GT,              /* 大于 */
-    OP_LEQ,             /* 小于等于 */
-    OP_GEQ,             /* 大于等于 */
-    
-    /* 变量操作指令 */
-    OP_ASSIGN,          /* 赋值 */
-    OP_LOAD_VAR,        /* 加载变量 */
-    OP_STORE_VAR,       /* 存储变量 */
-    OP_LOAD_GLOBAL,     /* 加载全局变量 */
-    OP_STORE_GLOBAL,    /* 存储全局变量 */
-    
-    /* 控制流指令 */
-    OP_JUMP,            /* 无条件跳转 */
-    OP_JUMP_IF_FALSE,   /* 条件为假时跳转 */
-    OP_JUMP_IF_TRUE,    /* 条件为真时跳转 */
-    
-    /* 函数相关指令 */
-    OP_CALL,            /* 函数调用 */
-    OP_RETURN,          /* 函数返回 */
-    OP_FUNC_START,      /* 函数开始标记 */
-    OP_FUNC_END,        /* 函数结束标记 */
-    
-    /* 代码块指令 */
-    OP_BLOCK_START,     /* 代码块开始 */
-    OP_BLOCK_END,       /* 代码块结束 */
-    
-    /* 模块指令 */
-    OP_LOAD_MODULE,     /* 加载模块 */
-    
-    /* 结构体指令 */
-    OP_STRUCT_DEF,      /* 定义结构体 */
-    OP_STRUCT_NEW,      /* 创建结构体实例 */
-    OP_MEMBER_ACCESS,   /* 访问成员 */
-    OP_MEMBER_STORE,    /* 存储成员 */
-    
-    /* 列表操作指令 */
-    OP_LIST_NEW,        /* 创建新列表 */
-    OP_LIST_ACCESS,     /* 访问列表元素 */
-    OP_LIST_STORE,      /* 存储列表元素 */
-    OP_LIST_PUSH,       /* 向列表添加元素 */
-    
-    OP_HALT             /* 停止执行 */
+    OP_NOP = 0x00,      /* No operation */
+
+    /* Stack operation instructions */
+    OP_PUSH_NUM,        /* Push number onto stack */
+    OP_PUSH_STR,        /* Push string onto stack */
+    OP_PUSH_IDENT,      /* Push identifier onto stack */
+    OP_PUSH_TRUE,       /* Push true onto stack */
+    OP_PUSH_FALSE,      /* Push false onto stack */
+    OP_PUSH_NULL,       /* Push null onto stack */
+
+    OP_POP,             /* Pop top element from stack */
+    OP_DUP,             /* Duplicate top element */
+    OP_SWAP,            /* Swap top two elements */
+
+    /* Arithmetic operation instructions */
+    OP_ADD,             /* Addition */
+    OP_SUB,             /* Subtraction */
+    OP_MUL,             /* Multiplication */
+    OP_DIV,             /* Division */
+    OP_MOD,             /* Modulo */
+    OP_POW,             /* Exponentiation */
+
+    /* Bitwise operation instructions */
+    OP_BIT_AND,         /* Bitwise AND */
+    OP_BIT_OR,          /* Bitwise OR */
+    OP_BIT_XOR,         /* Bitwise XOR */
+    OP_BIT_NOT,         /* Bitwise NOT */
+    OP_BIT_LSHIFT,      /* Left shift */
+    OP_BIT_RSHIFT,      /* Right shift */
+
+    /* Logical operation instructions */
+    OP_LOGIC_AND,       /* Logical AND */
+    OP_LOGIC_OR,        /* Logical OR */
+    OP_LOGIC_NOT,       /* Logical NOT */
+
+    /* Comparison operation instructions */
+    OP_EQ,              /* Equal */
+    OP_NEQ,             /* Not equal */
+    OP_LT,              /* Less than */
+    OP_GT,              /* Greater than */
+    OP_LEQ,             /* Less than or equal */
+    OP_GEQ,             /* Greater than or equal */
+
+    /* Variable operation instructions */
+    OP_ASSIGN,          /* Assignment */
+    OP_LOAD_VAR,        /* Load variable */
+    OP_STORE_VAR,       /* Store variable */
+    OP_LOAD_GLOBAL,     /* Load global variable */
+    OP_STORE_GLOBAL,    /* Store global variable */
+
+    /* Control flow instructions */
+    OP_JUMP,            /* Unconditional jump */
+    OP_JUMP_IF_FALSE,   /* Jump if condition is false */
+    OP_JUMP_IF_TRUE,    /* Jump if condition is true */
+
+    /* Function-related instructions */
+    OP_CALL,            /* Function call */
+    OP_RETURN,          /* Function return */
+    OP_FUNC_START,      /* Function start marker */
+    OP_FUNC_END,        /* Function end marker */
+
+    /* Code block instructions */
+    OP_BLOCK_START,     /* Code block start */
+    OP_BLOCK_END,       /* Code block end */
+
+    /* Module instructions */
+    OP_LOAD_MODULE,     /* Load module */
+
+    /* Structure instructions */
+    OP_STRUCT_DEF,      /* Define structure */
+    OP_STRUCT_NEW,      /* Create structure instance */
+    OP_MEMBER_ACCESS,   /* Member access */
+    OP_MEMBER_STORE,    /* Member store */
+
+    /* List operation instructions */
+    OP_LIST_NEW,        /* Create new list */
+    OP_LIST_ACCESS,     /* Access list element */
+    OP_LIST_STORE,      /* Store list element */
+    OP_LIST_PUSH,       /* Push element to list */
+
+    OP_HALT             /* Halt execution */
 } OpCode;
 
-/* 字节码指令结构 */
+/* Bytecode instruction structure */
 typedef struct {
-    OpCode opcode;              /* 操作码 */
+    OpCode opcode;              /* Opcode */
     union {
-        double num_value;       /* 数字操作数 */
-        char* str_value;        /* 字符串操作数 */
-        int int_value;          /* 整数操作数（用于跳转地址等） */
-        size_t size_value;      /* size_t类型操作数 */
+        double num_value;       /* Numeric operand */
+        char* str_value;        /* String operand */
+        int int_value;          /* Integer operand (for jump addresses, etc.) */
+        size_t size_value;      /* size_t type operand */
     } operand;
 } Instruction;
 
-/* 函数信息结构 */
+/* Function information structure */
 typedef struct {
-    char* name;                 /* 函数名称 */
-    size_t start_addr;          /* 函数起始地址 */
-    size_t param_count;         /* 参数数量 */
+    char* name;                 /* Function name */
+    size_t start_addr;          /* Function start address */
+    size_t param_count;         /* Parameter count */
 } FunctionInfo;
 
-/* 结构体信息 */
+/* Structure information */
 typedef struct {
-    char* name;                 /* 结构体名称 */
-    DynArray* members;          /* 成员列表 */
+    char* name;                 /* Structure name */
+    DynArray* members;          /* Member list */
 } StructInfo;
 
-/* 字节码生成器主结构 */
+/* Bytecode generator main structure */
 typedef struct {
-    DynArray* instructions;     /* 指令数组 */
-    DynArray* constants;        /* 常量池 */
-    DynArray* functions;        /* 函数表 */
-    DynArray* structs;          /* 结构体表 */
-    DynArray* globals;          /* 全局变量表 */
-    size_t current_addr;        /* 当前指令地址 */
+    DynArray* instructions;     /* Instruction array */
+    DynArray* constants;        /* Constant pool */
+    DynArray* functions;        /* Function table */
+    DynArray* structs;          /* Structure table */
+    DynArray* globals;          /* Global variable table */
+    size_t current_addr;        /* Current instruction address */
 } BytecodeGenerator;
 
-/* ========== 字节码生成器管理函数 ========== */
+/* ========== Bytecode Generator Management Functions ========== */
 
-/* 创建字节码生成器 */
+/* Create bytecode generator */
 extern BytecodeGenerator* create_bytecode_generator();
 
-/* 销毁字节码生成器，释放所有资源 */
+/* Destroy bytecode generator, release all resources */
 extern void destroy_bytecode_generator(BytecodeGenerator* gen);
 
-/* ========== 指令发射函数 ========== */
+/* ========== Instruction Emission Functions ========== */
 
-/* 发射基本指令（无操作数） */
+/* Emit basic instruction (no operand) */
 extern void emit_instruction(BytecodeGenerator* gen, OpCode opcode);
 
-/* 发射带数字操作数的指令 */
+/* Emit instruction with numeric operand */
 extern void emit_instruction_with_num(BytecodeGenerator* gen, OpCode opcode, double value);
 
-/* 发射带字符串操作数的指令 */
+/* Emit instruction with string operand */
 extern void emit_instruction_with_str(BytecodeGenerator* gen, OpCode opcode, const char* value);
 
-/* 发射带整数操作数的指令 */
+/* Emit instruction with integer operand */
 extern void emit_instruction_with_int(BytecodeGenerator* gen, OpCode opcode, int value);
 
-/* 发射跳转占位符，返回地址用于后续回填 */
+/* Emit jump placeholder, return address for later patching */
 extern void emit_jump_placeholder(BytecodeGenerator* gen, OpCode opcode, size_t* addr_ref);
 
-/* 回填跳转地址 */
+/* Patch jump address */
 extern void patch_jump(BytecodeGenerator* gen, size_t addr_ref);
 
-/* ========== 常量和符号管理函数 ========== */
+/* ========== Constant and Symbol Management Functions ========== */
 
-/* 添加数字常量到常量池 */
+/* Add numeric constant to constant pool */
 extern int add_constant(BytecodeGenerator* gen, double value);
 
-/* 添加字符串常量到常量池 */
+/* Add string constant to constant pool */
 extern int add_string_constant(BytecodeGenerator* gen, const char* str);
 
-/* 注册全局变量 */
+/* Register global variable */
 extern int register_global(BytecodeGenerator* gen, const char* name);
 
-/* 检查是否为全局变量 */
+/* Check if it is a global variable */
 extern int checkfor_global(BytecodeGenerator* gen, const char* name);
 
-/* 注册函数 */
+/* Register function */
 extern int register_function(BytecodeGenerator* gen, const char* name, size_t param_count);
 
-/* 注册结构体 */
+/* Register structure */
 extern int register_struct(BytecodeGenerator* gen, const char* name, DynArray* members);
 
-/* ========== AST到字节码的生成函数 ========== */
+/* ========== AST to Bytecode Generation Functions ========== */
 
-/* 生成整个程序的字节码 */
+/* Generate bytecode for the entire program */
 extern bool generate_bytecode(BytecodeGenerator* gen, ASTNode* ast);
 
-/* 生成表达式的字节码 */
+/* Generate bytecode for expression */
 extern bool generate_expression(BytecodeGenerator* gen, ASTNode* node);
 
-/* 生成语句的字节码 */
+/* Generate bytecode for statement */
 extern bool generate_statement(BytecodeGenerator* gen, ASTNode* node);
 
-/* 生成代码块的字节码 */
+/* Generate bytecode for code block */
 extern bool generate_block(BytecodeGenerator* gen, ASTNode* node);
 
-/* 生成函数定义的字节码 */
+/* Generate bytecode for function definition */
 extern bool generate_function(BytecodeGenerator* gen, ASTNode* node);
 
-/* 生成结构体定义的字节码 */
+/* Generate bytecode for structure definition */
 extern bool generate_struct(BytecodeGenerator* gen, ASTNode* node);
 
-/* ========== 字节码输入输出函数 ========== */
+/* ========== Bytecode Input/Output Functions ========== */
 
-/* 打印字节码（用于调试） */
+/* Print bytecode (for debugging) */
 extern void print_bytecode(BytecodeGenerator* gen);
 
-/* 保存字节码到文件 */
+/* Save bytecode to file */
 extern bool save_bytecode(BytecodeGenerator* gen, const char* filename);
 
-/* 从文件加载字节码 */
+/* Load bytecode from file */
 extern BytecodeGenerator* load_bytecode(const char* filename);
 
 #endif

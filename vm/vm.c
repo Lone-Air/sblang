@@ -5,6 +5,10 @@
  * Not welcome to use /XD
  */
 
+#ifndef _WIN32
+#define _GNU_SOURCE
+#endif
+
 #include "vm.h"
 #include "../error/error.h"
 #include "../lexer/lexer.h"
@@ -19,9 +23,17 @@
 #ifdef _WIN32
 #include <windows.h>
 #define SHARED_LIB_EXT ".dll"
+#define PATH_MAX MAX_PATH
 #else
 #include <dlfcn.h>
+#include <unistd.h>
+#include <limits.h>
+#include <libgen.h>
+#include <sys/stat.h>
 #define SHARED_LIB_EXT ".so"
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 #endif
 
 /* ========== Variable Table Management Functions ========== */
@@ -466,10 +478,12 @@ Value copy_value(Value value) {
                     for (size_t i = 0; i < value.as.list->count; i++) {
                         result.as.list->items[i] = copy_value(value.as.list->items[i]);
                     }
-                } else {
+                }
+                else {
                     result.as.list->items = nullptr;
                 }
-            } else {
+            }
+            else {
                 result.as.list = nullptr;
             }
             break;
@@ -727,6 +741,48 @@ static bool file_exists(const char* filename) {
 }
 
 /**
+ * Check if path is a directory
+ */
+static bool is_directory(const char* path) {
+    struct stat statbuf;
+    if (stat(path, &statbuf) != 0) {
+        return false;
+    }
+    return S_ISDIR(statbuf.st_mode);
+}
+
+/**
+ * Get executable directory path
+ */
+static bool get_executable_dir(char* dir_path, size_t size) {
+#ifdef _WIN32
+    char exe_path[MAX_PATH];
+    if (GetModuleFileName(NULL, exe_path, MAX_PATH) == 0) {
+        return false;
+    }
+    char* last_slash = strrchr(exe_path, '\\');
+    if (last_slash) {
+        *last_slash = '\0';
+    }
+    strncpy(dir_path, exe_path, size - 1);
+    dir_path[size - 1] = '\0';
+    return true;
+#else
+    char exe_path[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (len == -1) {
+        return false;
+    }
+    exe_path[len] = '\0';
+    
+    char* dir = dirname(exe_path);
+    strncpy(dir_path, dir, size - 1);
+    dir_path[size - 1] = '\0';
+    return true;
+#endif
+}
+
+/**
  * Load shared library and execute _sbLibInit
  */
 static bool load_shared_library(VM* vm, const char* lib_path, const char* module_name) {
@@ -807,6 +863,7 @@ static bool load_bytecode_file(VM* vm, const char* filename, const char* module_
 
     /* Save current VM state */
     size_t saved_pc = vm->pc;
+    bool saved_running = vm->running;
     Instruction* saved_instructions = vm->instructions;
     size_t saved_instruction_count = vm->instruction_count;
 
@@ -816,7 +873,7 @@ static bool load_bytecode_file(VM* vm, const char* filename, const char* module_
         return false;
     }
 
-    printf("Loading bytecode module: %s\n", module_name);
+    //printf("Loading bytecode module: %s\n", module_name);
 
     VMError result = vm_execute(vm);
 
@@ -839,9 +896,110 @@ static bool load_bytecode_file(VM* vm, const char* filename, const char* module_
     vm->instructions = saved_instructions;
     vm->instruction_count = saved_instruction_count;
     vm->pc = saved_pc;
+    vm->running = saved_running;
 
     destroy_bytecode_generator(gen);
     return result == VM_OK;
+}
+
+/**
+ * Append module instructions to VM
+ */
+static bool append_module_instructions(VM* vm, BytecodeGenerator* gen, size_t offset) {
+    if (!vm || !gen) return false;
+    
+    // First, add a HALT instruction at the end of main program to prevent fall-through
+    if (offset > 0) {
+        // Expand instruction array by 1 for HALT
+        Instruction* new_instructions = (Instruction*)realloc(vm->instructions, 
+                                                              (offset + 1) * sizeof(Instruction));
+        if (!new_instructions) {
+            vm_error(vm, VM_MEMORY_ERROR, "Failed to add HALT instruction");
+            return false;
+        }
+        vm->instructions = new_instructions;
+        
+        // Add HALT instruction at the end of main program
+        vm->instructions[offset].opcode = OP_HALT;
+        vm->instructions[offset].operand.int_value = 0;
+        
+        vm->instruction_count = offset + 1;
+        offset = vm->instruction_count;  // Update offset for module instructions
+    }
+    
+    // Calculate new total instruction count
+    size_t new_count = vm->instruction_count + gen->instructions->count;
+    
+    // Reallocate instruction array
+    Instruction* new_instructions = (Instruction*)realloc(vm->instructions, 
+                                                          new_count * sizeof(Instruction));
+    if (!new_instructions) {
+        vm_error(vm, VM_MEMORY_ERROR, "Failed to expand instruction memory for module");
+        return false;
+    }
+    
+    vm->instructions = new_instructions;
+    
+    // Copy module instructions to the end of main instructions
+    for (size_t i = 0; i < gen->instructions->count; i++) {
+        Instruction* src = (Instruction*)gen->instructions->items[i];
+        size_t dest_idx = vm->instruction_count + i;
+        vm->instructions[dest_idx] = *src;
+        
+        // Copy string operands
+        if (src->opcode == OP_PUSH_STR || src->opcode == OP_PUSH_IDENT ||
+            src->opcode == OP_LOAD_VAR || src->opcode == OP_STORE_VAR ||
+            src->opcode == OP_LOAD_MODULE || src->opcode == OP_FUNC_START ||
+            src->opcode == OP_STRUCT_DEF || src->opcode == OP_STRUCT_NEW ||
+            src->opcode == OP_MEMBER_ACCESS || src->opcode == OP_MEMBER_STORE ||
+            src->opcode == OP_LOAD_GLOBAL || src->opcode == OP_STORE_GLOBAL) {
+            if (src->operand.str_value) {
+                vm->instructions[dest_idx].operand.str_value = strdup(src->operand.str_value);
+            }
+        }
+        
+        // Adjust jump addresses
+        if (src->opcode == OP_JUMP || src->opcode == OP_JUMP_IF_FALSE || 
+            src->opcode == OP_JUMP_IF_TRUE) {
+            vm->instructions[dest_idx].operand.int_value += offset;
+        }
+    }
+    
+    // Load and adjust function definitions
+    if (gen->functions && gen->functions->count > 0) {
+        size_t old_func_count = vm->function_count;
+        size_t new_func_count = old_func_count + gen->functions->count;
+        
+        Function* new_functions = (Function*)realloc(vm->functions, 
+                                                     new_func_count * sizeof(Function));
+        if (!new_functions) {
+            vm_error(vm, VM_MEMORY_ERROR, "Failed to expand function table for module");
+            return false;
+        }
+        
+        vm->functions = new_functions;
+        
+        for (size_t i = 0; i < gen->functions->count; i++) {
+            FunctionInfo* src = (FunctionInfo*)gen->functions->items[i];
+            size_t dest_idx = old_func_count + i;
+            
+            vm->functions[dest_idx].name = strdup(src->name);
+            vm->functions[dest_idx].start_addr = src->start_addr + offset; // Adjust function address
+            vm->functions[dest_idx].param_count = src->param_count;
+            vm->functions[dest_idx].locals = nullptr;
+            
+            // Register function as a global variable
+            Value func_val = create_function(&vm->functions[dest_idx]);
+            vm_define_global(vm, vm->functions[dest_idx].name, func_val);
+        }
+        
+        vm->function_count = new_func_count;
+    }
+    
+    // Update instruction count
+    vm->instruction_count = new_count;
+    
+    return true;
 }
 
 /**
@@ -919,45 +1077,34 @@ static bool load_source_file(VM* vm, const char* filename, const char* module_na
         return false;
     }
 
-    /* Save current VM state */
-    size_t saved_pc = vm->pc;
-
-    Instruction* saved_instructions = vm->instructions;
-    size_t saved_instruction_count = vm->instruction_count;
-
-    /* Load and execute module bytecode */
-    if (!vm_load_bytecode(vm, gen)) {
+    /* Append module instructions to main program */
+    size_t offset = vm->instruction_count;  // Save current instruction count as offset
+    if (!append_module_instructions(vm, gen, offset)) {
         destroy_bytecode_generator(gen);
         free_ast(ast);
         destroy_tkstate(parser);
         free(tokens);
         free(source);
-        vm_error(vm, VM_LOAD_ERROR, "Failed to load bytecode for module '%s'", module_name);
         return false;
     }
-
-    printf("Loading module: %s\n", module_name);
-
-    VMError result = vm_execute(vm);
-
-    /* Restore VM state */
-    if (vm->instructions && vm->instructions != saved_instructions) {
-        for (size_t i = 0; i < vm->instruction_count; i++) {
-            Instruction* inst = &vm->instructions[i];
-            if (inst->opcode == OP_PUSH_STR || inst->opcode == OP_PUSH_IDENT ||
-                inst->opcode == OP_LOAD_VAR || inst->opcode == OP_STORE_VAR ||
-                inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_START ||
-                inst->opcode == OP_STRUCT_DEF || inst->opcode == OP_STRUCT_NEW ||
-                inst->opcode == OP_MEMBER_ACCESS || inst->opcode == OP_MEMBER_STORE ||
-                inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
-                if (inst->operand.str_value) free(inst->operand.str_value);
-            }
-        }
-        free(vm->instructions);
+    
+    //printf("Loading module: %s\n", module_name);
+    
+    /* Execute module initialization code (from offset to end) */
+    size_t saved_pc = vm->pc;
+    
+    //printf("DEBUG: Executing module from PC=%zu to PC=%zu\n", offset, vm->instruction_count - 1);
+    
+    // Skip the HALT instruction that separates main program from module
+    if (offset > 0 && vm->instructions[offset].opcode == OP_HALT) {
+        offset++;  // Skip the HALT to start at actual module code
     }
-
-    vm->instructions = saved_instructions;
-    vm->instruction_count = saved_instruction_count;
+    
+    vm->pc = offset;  // Start executing from the module's first instruction
+    VMError result = vm_execute(vm);
+    //printf("DEBUG: Module execution finished, restoring PC from %zu to %zu\n", vm->pc, saved_pc);
+    
+    /* Restore PC to continue main program execution */
     vm->pc = saved_pc;
 
     /* Clean up resources */
@@ -972,10 +1119,80 @@ static bool load_source_file(VM* vm, const char* filename, const char* module_na
 
 /**
  * Load and execute module
- * Priority: .so/.dll -> .sbc -> .sb
+ * Priority order:
+ * 1. Check ../lib/sblang/[module_name]/ directory for init.sb -> [module_name].sb -> [module_name].sbc
+ * 2. Original loading logic: .so/.dll -> .sbc -> .sb in current directory
  */
 static bool load_module(VM* vm, const char* module_name) {
-    char filename[256];
+    char filename[512];
+    char exe_dir[PATH_MAX];
+    
+    /* First, try to check in ../lib/sblang directory relative to executable */
+    if (get_executable_dir(exe_dir, sizeof(exe_dir))) {
+        char lib_path[PATH_MAX];
+        snprintf(lib_path, sizeof(lib_path), "%s/../lib/sblang/%s", exe_dir, module_name);
+        
+        /* Check if the target path (without extension) is a directory */
+        if (is_directory(lib_path)) {
+            /* Target is a directory - try to load files in order */
+            
+            /* 1. Try init.sb first */
+            snprintf(filename, sizeof(filename), "%s/init.sb", lib_path);
+            if (file_exists(filename)) {
+                if (load_source_file(vm, filename, module_name)) {
+                    return true;
+                }
+            }
+            
+            /* 2. Try [module_name].sb */
+            snprintf(filename, sizeof(filename), "%s/%s.sb", lib_path, module_name);
+            if (file_exists(filename)) {
+                if (load_source_file(vm, filename, module_name)) {
+                    return true;
+                }
+            }
+            
+            /* 3. Try [module_name].sbc */
+            snprintf(filename, sizeof(filename), "%s/%s.sbc", lib_path, module_name);
+            if (file_exists(filename)) {
+                if (load_bytecode_file(vm, filename, module_name)) {
+                    return true;
+                }
+            }
+            
+            /* Directory exists but no valid files found */
+            vm_error(vm, VM_LOAD_ERROR, "Module directory '%s' exists but contains no valid module files (init.sb, %s.sb, or %s.sbc)", lib_path, module_name, module_name);
+            return false;
+        } else {
+            /* Target is not a directory - try to load files directly in lib_path */
+            
+            /* Try .so/.dll */
+            snprintf(filename, sizeof(filename), "%s%s", lib_path, SHARED_LIB_EXT);
+            if (file_exists(filename)) {
+                if (load_shared_library(vm, filename, module_name)) {
+                    return true;
+                }
+            }
+            
+            /* Try .sbc */
+            snprintf(filename, sizeof(filename), "%s.sbc", lib_path);
+            if (file_exists(filename)) {
+                if (load_bytecode_file(vm, filename, module_name)) {
+                    return true;
+                }
+            }
+            
+            /* Try .sb */
+            snprintf(filename, sizeof(filename), "%s.sb", lib_path);
+            if (file_exists(filename)) {
+                if (load_source_file(vm, filename, module_name)) {
+                    return true;
+                }
+            }
+        }
+    }
+    
+    /* If not found in lib directory, fall back to original loading logic */
     
     /* First try to load shared library (.so or .dll) */
     snprintf(filename, sizeof(filename), "./%s%s", module_name, SHARED_LIB_EXT);
@@ -1008,7 +1225,7 @@ static bool load_module(VM* vm, const char* module_name) {
     }
     
     /* No module file found */
-    vm_error(vm, VM_LOAD_ERROR, "Cannot load module '%s': no compatible file found (.so/.dll, .sbc, or .sb)", module_name);
+    vm_error(vm, VM_LOAD_ERROR, "Cannot load module '%s': no compatible file found in ../lib/sblang/ or current directory", module_name);
     return false;
 }
 
@@ -1082,7 +1299,8 @@ VMError vm_execute_instruction(VM* vm) {
 
             if (a.type == VAL_NUMBER && b.type == VAL_NUMBER) {
                 vm_push(vm, create_number(a.as.number + b.as.number));
-            } else if (a.type == VAL_STRING && b.type == VAL_STRING) {
+            }
+            else if (a.type == VAL_STRING && b.type == VAL_STRING) {
                 // String concatenation
                 size_t len = strlen(a.as.string) + strlen(b.as.string) + 1;
                 char* result = (char*)malloc(len);
@@ -1093,7 +1311,8 @@ VMError vm_execute_instruction(VM* vm) {
                     free(result);
                     vm_push(vm, str_val);
                 }
-            } else {
+            }
+            else {
                 vm_error(vm, VM_TYPE_ERROR, "Invalid operands for addition");
                 //printf("---- DEBUG: a: %d, b: %d \n", a.type, b.type);
                 return VM_TYPE_ERROR;
@@ -1383,11 +1602,13 @@ VMError vm_execute_instruction(VM* vm) {
                 Value* native_var = vm_get_variable(vm, name);
                 if (native_var && native_var->type == VAL_NATIVE) {
                     vm_push(vm, *native_var);
-                } else {
+                }
+                else {
                     vm_error(vm, VM_UNDEFINED_VARIABLE, "Undefined variable '%s'", name);
                     return VM_UNDEFINED_VARIABLE;
                 }
-            } else {
+            }
+            else {
                 // Push a copy of the value to prevent double-free when used as function argument
                 vm_push(vm, *var);
             }
@@ -1472,7 +1693,8 @@ VMError vm_execute_instruction(VM* vm) {
                     for (int i = 0; i < arg_count; i++) {
                         free_value(args[i]);
                     }
-                } else if (func_val->type == VAL_FUNCTION) {
+                }
+                else if (func_val->type == VAL_FUNCTION) {
                     // Call user-defined function
                     Function* func = func_val->as.function;
                     
@@ -1508,7 +1730,7 @@ VMError vm_execute_instruction(VM* vm) {
                     CallFrame* frame = &vm->call_stack[vm->call_depth++];
                     frame->function = func;
                     frame->return_addr = vm->pc;
-                    frame->stack_base = vm->stack_top - arg_count;
+                    frame->stack_base = vm->stack_top;  // Save current stack top before pushing args back
                     
                     // Save current local scope and create new one
                     VariableTable* old_locals = vm->locals;
@@ -1526,7 +1748,8 @@ VMError vm_execute_instruction(VM* vm) {
                     
                     // Jump to function body
                     vm->pc = func->start_addr;
-                } else {
+                }
+                else {
                     vm_error(vm, VM_TYPE_ERROR, "'%s' is not a function", func_name.as.string);
                     free_value(func_name);
                     for (int i = 0; i < arg_count; i++) {
@@ -1543,7 +1766,18 @@ VMError vm_execute_instruction(VM* vm) {
         case OP_RETURN: {
             // Function return
             if (vm->call_depth > 0) {
+                // Get return value from stack (if any)
+                Value return_value = create_null();
+                if (vm->stack_top > 0) {
+                    return_value = vm_pop(vm);
+                }
+                
                 CallFrame* frame = &vm->call_stack[--vm->call_depth];
+                
+                // Clean up function's stack frame (remove local variables and parameters)
+                vm->stack_top = frame->stack_base;
+                
+                // Restore PC
                 vm->pc = frame->return_addr;
 
                 // Clean up current local variables and restore previous scope
@@ -1554,7 +1788,11 @@ VMError vm_execute_instruction(VM* vm) {
                 
                 // Restore previous local scope (stored in frame->locals)
                 vm->locals = (VariableTable*)frame->locals;
-            } else {
+                
+                // Push return value back onto stack
+                vm_push(vm, return_value);
+            }
+            else {
                 return VM_OK; // Main program return
             }
             break;
@@ -1578,9 +1816,11 @@ VMError vm_execute_instruction(VM* vm) {
         case OP_LOAD_MODULE: {
             // Load module
             const char* module_name = inst->operand.str_value;
+            //printf("DEBUG: OP_LOAD_MODULE at PC=%zu\n", vm->pc - 1);
             if (!load_module(vm, module_name)) {
                 return VM_LOAD_ERROR;
             }
+            //printf("DEBUG: OP_LOAD_MODULE completed, continuing at PC=%zu\n", vm->pc);
             break;
         }
 
@@ -1697,7 +1937,8 @@ VMError vm_execute_instruction(VM* vm) {
                 // Don't free obj here since it's a reference type
                 free_value(value);
                 return VM_UNDEFINED_MEMBER;
-            } else {
+            }
+            else {
                 // Update existing member value
                 free_value(instance->members[member_idx]);
                 instance->members[member_idx] = copy_value(value);
@@ -1788,6 +2029,8 @@ VMError vm_execute_instruction(VM* vm) {
 
         case OP_HALT:
             // Stop execution
+            if (vm->pc == vm->end_pc)
+                vm->running = false; // End program
             return VM_OK;
 
         default:
@@ -1885,7 +2128,8 @@ bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen) {
                 for (size_t j = 0; j < vm->structs[i].member_count; j++) {
                     vm->structs[i].members[j] = strdup((char*)src->members->items[j]);
                 }
-            } else {
+            }
+            else {
                 vm->structs[i].members = nullptr;
             }
         }
@@ -1900,6 +2144,10 @@ bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen) {
     }
 
     vm->pc = 0;
+
+    if (vm->running == false)
+        vm->end_pc = vm->instruction_count;
+
     return true;
 }
 

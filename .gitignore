@@ -3,3 +3,5 @@ massif*
 *build*
 .vscode
 *.o
+*Makefile*
+cmake*
