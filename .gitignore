@@ -7,3 +7,4 @@ massif*
 *Makefile*
 cmake*
 lib/
+.idea
