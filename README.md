@@ -13,7 +13,7 @@ make -j
 ### Command Line Compiler
 ```aiignore
 SB Language Compiler & Runtime v1.0.0
-Copyright (c) 2025 Laman28
+Create by Laman28 - Release under LGPL License
 Usage: sbl [options] file1 [file2 ...]
 
 Options:
