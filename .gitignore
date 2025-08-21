@@ -6,3 +6,4 @@ massif*
 *.o
 *Makefile*
 cmake*
+lib/

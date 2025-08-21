@@ -1,0 +1,17 @@
+function a(){
+    return 10;
+}
+
+struct b{
+    m1, m2
+}
+
+c -> b;
+c.m1 = 5;
+c.m2 = 10;
+
+print("Str" + toString(1) + '\n');
+print("Str" + toString(2) + '\n');
+print(toString(print) + '\n');
+print(toString(a) + '\n');
+print(toString(c) + '\n');

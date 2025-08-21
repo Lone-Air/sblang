@@ -1,0 +1,11 @@
+struct test_struct {
+    member1, member2
+}
+
+instance -> test_struct;
+instance.member1 = 1;
+instance.member2 = 2;
+
+print("Testing: ");
+print(toString(instance));
+print("\n");

@@ -497,6 +497,7 @@ Value copy_value(Value value) {
                 for (int i = 0; i < value.as.instance->struct_def->member_count; i++) {
                     result.as.instance->members[i] = copy_value(value.as.instance->members[i]);
                 }
+
                 /*
                 result.as.instance->struct_def = (Struct*)malloc(sizeof(Struct));
                 result.as.instance->struct_def->name = value.as.instance->struct_def->name ? strdup(value.as.instance->struct_def->name) : nullptr;
@@ -506,6 +507,7 @@ Value copy_value(Value value) {
                 }
                 result.as.instance->struct_def->member_count = value.as.instance->struct_def->member_count;
                 */
+
                 result.as.instance->struct_def = value.as.instance->struct_def;
             }
             break;
@@ -529,7 +531,10 @@ Value copy_value(Value value) {
 void free_value(Value value) {
     switch (value.type) {
         case VAL_STRING:
-            if (value.as.string) free(value.as.string);
+            if (value.as.string) {
+                free(value.as.string);
+                value.as.string = nullptr;
+            }
             break;
         case VAL_LIST:
             if (value.as.list) {
@@ -541,17 +546,24 @@ void free_value(Value value) {
                     free(value.as.list->items);
                 }
                 free(value.as.list);
+                value.as.list = nullptr;
             }
             break;
         case VAL_STRUCT_INSTANCE:
             if (value.as.instance) {
-                if (value.as.instance->members) {
+                if (value.as.instance->members && value.as.instance->struct_def) {
                     // Free all members of struct instance
                     for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
                         free_value(value.as.instance->members[i]);
+                        //free(value.as.instance->struct_def->members[i]);
                     }
                     free(value.as.instance->members);
+                    //free(value.as.instance->struct_def->name);
+                    //free(value.as.instance->struct_def->members);
+                    //free(value.as.instance->struct_def);
+                    value.as.instance->members = nullptr;
                 }
+                // Do NOT free struct_def - it's shared among all instances and managed by VM
                 free(value.as.instance);
             }
             break;
@@ -1163,11 +1175,15 @@ static bool load_module(VM* vm, const char* module_name) {
             /* Directory exists but no valid files found */
             vm_error(vm, VM_LOAD_ERROR, "Module directory '%s' exists but contains no valid module files (init.sb, %s.sb, or %s.sbc)", lib_path, module_name, module_name);
             return false;
-        } else {
+        }
+        else {
             /* Target is not a directory - try to load files directly in lib_path */
             
             /* Try .so/.dll */
-            snprintf(filename, sizeof(filename), "%s%s", lib_path, SHARED_LIB_EXT);
+            char lib_path_dy[PATH_MAX];
+            snprintf(lib_path_dy, sizeof(lib_path_dy), "%s/../lib/sblang/lib%s", exe_dir, module_name);
+            snprintf(filename, sizeof(filename), "%s%s", lib_path_dy, SHARED_LIB_EXT);
+            //printf("--- DEBUG: so library: %s", filename);
             if (file_exists(filename)) {
                 if (load_shared_library(vm, filename, module_name)) {
                     return true;
@@ -1195,7 +1211,8 @@ static bool load_module(VM* vm, const char* module_name) {
     /* If not found in lib directory, fall back to original loading logic */
     
     /* First try to load shared library (.so or .dll) */
-    snprintf(filename, sizeof(filename), "./%s%s", module_name, SHARED_LIB_EXT);
+    snprintf(filename, sizeof(filename), "./lib%s%s", module_name, SHARED_LIB_EXT);
+    //printf("--- DEBUG: so library: %s", filename);
     if (file_exists(filename)) {
         if (load_shared_library(vm, filename, module_name)) {
             return true;
@@ -1313,10 +1330,11 @@ VMError vm_execute_instruction(VM* vm) {
                 }
             }
             else {
-                vm_error(vm, VM_TYPE_ERROR, "Invalid operands for addition");
+                vm_error(vm, VM_TYPE_ERROR, "Invalid operands for addition (should be `string + string` or `number + number`)");
                 //printf("---- DEBUG: a: %d, b: %d \n", a.type, b.type);
                 return VM_TYPE_ERROR;
             }
+
             free_value(a);
             free_value(b);
             break;
@@ -1609,7 +1627,8 @@ VMError vm_execute_instruction(VM* vm) {
                 }
             }
             else {
-                // Push a copy of the value to prevent double-free when used as function argument
+                // Push the value directly for reference types like structs
+                // For function arguments, copy_value will be called separately
                 vm_push(vm, *var);
             }
             break;
@@ -1667,7 +1686,13 @@ VMError vm_execute_instruction(VM* vm) {
             // Get arguments
             Value args[arg_count];
             for (int i = arg_count - 1; i >= 0; i--) {
-                args[i] = vm_pop(vm);
+                Value original = vm_pop(vm);
+                // Deep copy struct instances to avoid double-free when passed as function arguments
+                if (original.type == VAL_STRUCT_INSTANCE) {
+                    args[i] = copy_value(original);
+                } else {
+                    args[i] = original;
+                }
             }
 
             // Get function name

@@ -14,8 +14,7 @@
 #include "parser/parser.h"
 #include "lexer/lexer.h"
 #include "error/error.h"
-
-#define VERSION "1.0.0"
+#include "information.h"
 
 /* Command line options structure */
 typedef struct {
@@ -83,7 +82,7 @@ int main(int argc, char** argv) {
                 output_file = get_output_filename(input_file);
             }
             
-            printf("Compiling '%s' to '%s'...\n", input_file, output_file);
+            printf("--- Compiling '%s' to '%s'...\n", input_file, output_file);
             
             if (!compile_file(input_file, output_file)) {
                 fprintf(stderr, "Error: Failed to compile '%s'\n", input_file);
@@ -97,7 +96,7 @@ int main(int argc, char** argv) {
             }
         } else {
             /* Execute mode */
-            printf("Executing '%s'...\n", input_file);
+            printf("--- Running '%s'...\n", input_file);
             
             if (!execute_file(input_file)) {
                 fprintf(stderr, "Error: Failed to execute '%s'\n", input_file);
@@ -174,6 +173,8 @@ static Options parse_arguments(int argc, char** argv) {
 
 /* Print usage information */
 static void print_usage(const char* program_name) {
+    printf("SB Language Compiler & Runtime v%s\n", VERSION);
+    printf("Create by Laman28 - Release under LGPL License\n");
     printf("Usage: %s [options] file1 [file2 ...]\n", program_name);
     printf("\nOptions:\n");
     printf("  -c              Compile only (generate .sbc files)\n");
@@ -189,8 +190,8 @@ static void print_usage(const char* program_name) {
 
 /* Print version information */
 static void print_version(void) {
-    printf("SB Language Compiler and Runtime v%s\n", VERSION);
-    printf("Copyright (c) 2024 Laman28\n");
+    printf("SB Language Compiler & Runtime v%s\n", VERSION);
+    printf("Create by Laman28 - Release under LGPL License\n");
 }
 
 /* Check if file exists */

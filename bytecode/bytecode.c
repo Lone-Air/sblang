@@ -12,20 +12,20 @@
 #include <string.h>
 #include <stdarg.h>
 
-/* ========== 动态数组辅助函数 ========== */
+/* ========== Dynamic Array Helper Functions ========== */
 
-/* 创建动态数组 */
+/* Create a dynamic array */
 static DynArray* create_dynarray() {
     DynArray* arr = (DynArray*)malloc(sizeof(DynArray));
     if (!arr) return nullptr;
-    
+
     arr->items = nullptr;
     arr->count = 0;
     arr->capacity = 0;
     return arr;
 }
 
-/* 销毁动态数组 */
+/* Destroy a dynamic array */
 static void destroy_dynarray(DynArray* arr) {
     if (!arr) return;
     if (arr->items) {
@@ -35,71 +35,71 @@ static void destroy_dynarray(DynArray* arr) {
     free(arr);
 }
 
-/* 向动态数组添加元素 */
+/* Add an element to a dynamic array */
 static bool dynarray_push(DynArray* arr, void* item) {
     if (!arr) return false;
-    
-    /* 检查是否需要扩容 */
+
+    /* Check if expansion is needed */
     if (arr->count >= arr->capacity) {
         size_t new_capacity = arr->capacity == 0 ? 8 : arr->capacity * 2;
         void** new_items = (void**)realloc(arr->items, new_capacity * sizeof(void*));
         if (!new_items) return false;
-        
+
         arr->items = new_items;
         arr->capacity = new_capacity;
     }
-    
+
     arr->items[arr->count++] = item;
     return true;
 }
 
-/* 获取动态数组元素 */
+/* Get an element from a dynamic array */
 static void* dynarray_get(DynArray* arr, size_t index) {
     if (!arr || index >= arr->count) return nullptr;
     return arr->items[index];
 }
 
-/* ========== 字节码生成器管理 ========== */
+/* ========== Bytecode Generator Management ========== */
 
 /**
- * 创建字节码生成器
- * 初始化所有必要的数据结构
+ * Create a bytecode generator
+ * Initializes all necessary data structures
  */
 BytecodeGenerator* create_bytecode_generator() {
     BytecodeGenerator* gen = (BytecodeGenerator*)malloc(sizeof(BytecodeGenerator));
     if (!gen) return nullptr;
-    
-    /* 初始化各个表 */
-    gen->instructions = create_dynarray();  /* 指令表 */
-    gen->constants = create_dynarray();     /* 常量池 */
-    gen->functions = create_dynarray();     /* 函数表 */
-    gen->structs = create_dynarray();       /* 结构体表 */
-    gen->globals = create_dynarray();       /* 全局变量表 */
-    gen->current_addr = 0;                  /* 当前地址从0开始 */
-    
-    /* 检查内存分配是否成功 */
-    if (!gen->instructions || !gen->constants || !gen->functions || 
+
+    /* Initialize various tables */
+    gen->instructions = create_dynarray();  /* Instruction table */
+    gen->constants = create_dynarray();     /* Constant pool */
+    gen->functions = create_dynarray();     /* Function table */
+    gen->structs = create_dynarray();       /* Struct table */
+    gen->globals = create_dynarray();       /* Global variable table */
+    gen->current_addr = 0;                  /* Start current address from 0 */
+
+    /* Check if memory allocation was successful */
+    if (!gen->instructions || !gen->constants || !gen->functions ||
         !gen->structs || !gen->globals) {
         destroy_bytecode_generator(gen);
         return nullptr;
     }
-    
+
     return gen;
 }
 
 /**
- * 销毁字节码生成器
- * 释放所有分配的内存，包括字符串操作数
+ * Destroy a bytecode generator
+ * Frees all allocated memory, including string operands
  */
 void destroy_bytecode_generator(BytecodeGenerator* gen) {
     if (!gen) return;
-    
-    /* 释放指令数组及其字符串操作数 */
+
+    /* Free instruction array and its string operands */
     if (gen->instructions) {
         for (size_t i = 0; i < gen->instructions->count; i++) {
             Instruction* inst = (Instruction*)dynarray_get(gen->instructions, i);
             if (inst) {
-                /* 释放字符串类型的操作数 */
+                /* Free string-type operands */
                 if (inst->opcode == OP_PUSH_STR || inst->opcode == OP_PUSH_IDENT ||
                     inst->opcode == OP_LOAD_VAR || inst->opcode == OP_STORE_VAR ||
                     inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_START ||
