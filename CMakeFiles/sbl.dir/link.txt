@@ -1,1 +1,0 @@
-/usr/bin/cc  -std=c23 -g -Wl,--dependency-file=CMakeFiles/sbl.dir/link.d CMakeFiles/sbl.dir/sbl.c.o CMakeFiles/sbl.dir/vm/vm.c.o CMakeFiles/sbl.dir/bytecode/bytecode.c.o CMakeFiles/sbl.dir/parser/parser.c.o CMakeFiles/sbl.dir/lexer/lexer.c.o CMakeFiles/sbl.dir/error/error.c.o CMakeFiles/sbl.dir/dynarray/dynarray.c.o CMakeFiles/sbl.dir/builtin/base_functions.c.o -o sbl  -lm -ldl

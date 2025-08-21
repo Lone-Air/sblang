@@ -69,7 +69,7 @@
  * - 比较运算：EQ, NEQ, LT, GT, LEQ, GEQ
  * - 控制流：JUMP, JUMP_IF_FALSE, JUMP_IF_TRUE
  * - 函数调用：CALL, RETURN
- * - 变量操作：LOAD_VAR, STORE_VAR
+ * - 变量操作：LOAD_VAR, STORE_VAR, STORE_GLOBAL
  * - 结构体操作：STRUCT_DEF, STRUCT_NEW, MEMBER_ACCESS, MEMBER_STORE
  * - 列表操作：LIST_NEW, LIST_ACCESS, LIST_STORE, LIST_PUSH
  * - 模块加载：LOAD_MODULE
@@ -138,9 +138,9 @@
  * 性能和限制
  * =====================================
  * 
- * - 操作数栈大小：1024个值
- * - 调用栈深度：256层
- * - 最大全局变量数：256个
+ * - 操作数栈大小：1024个值，按需翻倍扩展
+ * - 调用栈深度：256层，按需翻倍扩展
+ * - 最大全局变量数：256个，按需翻倍扩展
  * - 动态数组初始容量：8，按需翻倍扩展
  * - 字节码文件格式：二进制，平台相关
  * 
