@@ -36,4 +36,4 @@ global result;
 result = sum + product;
 
 print(result);
-print(point1.x + point1.y);
+print(point1.x + point1.y, '\n');
