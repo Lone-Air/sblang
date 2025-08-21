@@ -724,7 +724,7 @@ static bool load_shared_library(VM* vm, const char* lib_path, const char* module
         return false;
     }
     
-    printf("Loaded shared library: %s\n", lib_path);
+    //printf("---DEBUG Loaded shared library: %s\n", lib_path);
     return true;
 }
 
@@ -1770,7 +1770,8 @@ bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen) {
             src->opcode == OP_LOAD_VAR || src->opcode == OP_STORE_VAR ||
             src->opcode == OP_LOAD_MODULE || src->opcode == OP_FUNC_START ||
             src->opcode == OP_STRUCT_DEF || src->opcode == OP_STRUCT_NEW ||
-            src->opcode == OP_MEMBER_ACCESS || src->opcode == OP_MEMBER_STORE) {
+            src->opcode == OP_MEMBER_ACCESS || src->opcode == OP_MEMBER_STORE ||
+            src->opcode == OP_LOAD_GLOBAL || src->opcode == OP_STORE_GLOBAL) {
             if (src->operand.str_value) {
                 vm->instructions[i].operand.str_value = strdup(src->operand.str_value);
             }

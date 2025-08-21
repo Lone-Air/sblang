@@ -1,0 +1,10 @@
+function f1(arg1){
+    if ( arg1 > 1024 ){
+        return arg1;
+    }
+    else{
+        return f1(arg1 + 1);
+    }
+}
+
+print("result: ", f1(0), '\n');
