@@ -1,0 +1,42 @@
+function func_1(argument1, argument2){
+    variable1 = argument1;
+    while(variable1 <= argument2) {
+        if(!(argument2 % argument1 == 2)) {
+            variable1 = variable1 + 2;
+        }
+        else {
+            variable1 = variable1 + 3;
+        }
+    }
+    for(i = 0; i < 10; i = i + 1){
+        variable1 = variable1 + i;
+    }
+    return variable1;
+}
+struct Structure1{
+    member1, member2,
+}
+variable2 -> Structure1;
+variable2.member1 = 'x';
+variable2.member2 = '3';
+b = !func_1(1, 2);
+c = ~(25 ^ (12 ** 5));
+print(variable2.member1, '\n');
+print(variable2.member2, '\n');
+print(variable2.member1 + variable2.member2, '\n');
+print(func_1(10, 20), '\n');
+print(func_1(10, 65), '\n');
+
+v1 = 0;
+v2 = 1;
+
+function func2(){
+    global v2;
+    v1 = 10;
+    v2 = 15;
+    print(v1, v2, '\n');
+}
+
+func2();
+
+print(v1, v2, '\n');

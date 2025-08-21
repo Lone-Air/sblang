@@ -1,0 +1,1873 @@
+/*
+ * SB - Language
+ * By Laman28
+ * Virtual Machine Implementation
+ * Not welcome to use /XD
+ */
+
+#include "vm.h"
+#include "../error/error.h"
+#include "../lexer/lexer.h"
+#include "../parser/parser.h"
+#include "../builtin/base_functions.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+#include <math.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#define SHARED_LIB_EXT ".dll"
+#else
+#include <dlfcn.h>
+#define SHARED_LIB_EXT ".so"
+#endif
+
+/* ========== Variable Table Management Functions ========== */
+
+/* Initialize variable table */
+static void init_variable_table(VariableTable* table) {
+    table->vars = nullptr;
+    table->count = 0;
+    table->capacity = 0;
+}
+
+/* Free variable table and all its variables */
+static void free_variable_table(VariableTable* table) {
+    if (!table) return;
+
+    /* Free each variable's name and value */
+    for (size_t i = 0; i < table->count; i++) {
+        if (table->vars[i].name) free(table->vars[i].name);
+        free_value(table->vars[i].value);
+    }
+
+    if (table->vars) free(table->vars);
+    table->vars = nullptr;
+    table->count = 0;
+    table->capacity = 0;
+}
+
+/* Find variable in variable table */
+static Variable* find_variable(VariableTable* table, const char* name) {
+    if (!table || !name) return nullptr;
+
+    // Linear search through variable table
+    for (size_t i = 0; i < table->count; i++) {
+        if (strcmp(table->vars[i].name, name) == 0) {
+            return &table->vars[i];
+        }
+    }
+    return nullptr;
+}
+
+/* Add or update variable in variable table */
+static bool add_variable(VariableTable* table, const char* name, Value value) {
+    if (!table || !name) return false;
+
+    /* Check if variable already exists */
+    Variable* existing = find_variable(table, name);
+    if (existing) {
+        // Update existing variable value
+        free_value(existing->value);
+        existing->value = copy_value(value);
+        return true;
+    }
+
+    /* Check if capacity needs to be increased */
+    if (table->count >= table->capacity) {
+        size_t new_capacity = table->capacity == 0 ? 8 : table->capacity * 2;
+        Variable* new_vars = (Variable*)realloc(table->vars, new_capacity * sizeof(Variable));
+        if (!new_vars) return false;
+
+        table->vars = new_vars;
+        table->capacity = new_capacity;
+    }
+
+    /* Add new variable */
+    table->vars[table->count].name = strdup(name);
+    table->vars[table->count].value = copy_value(value);
+    table->count++;
+
+    return true;
+}
+
+/* ========== VM Management Functions ========== */
+
+/**
+ * Create VM instance
+ * Initialize all components and set default state
+ */
+VM* create_vm() {
+    VM* vm = (VM*)malloc(sizeof(VM));
+    if (!vm) return nullptr;
+
+    /* Initialize instruction-related fields */
+    vm->instructions = nullptr;
+    vm->instruction_count = 0;
+    vm->pc = 0; // Program counter
+
+    /* Initialize stack */
+    vm->stack_top = 0;
+    vm->call_depth = 0;
+
+    /* Initialize variable tables */
+    init_variable_table(&vm->globals);
+    vm->locals = nullptr;
+
+    /* Initialize function and struct tables */
+    vm->functions = nullptr;
+    vm->function_count = 0;
+    vm->structs = nullptr;
+    vm->struct_count = 0;
+
+    /* Initialize loaded libraries */
+    vm->loaded_libs = nullptr;
+    vm->loaded_lib_count = 0;
+
+    /* Initialize error and runtime state */
+    vm->last_error = VM_OK;
+    vm->error_message = nullptr;
+    vm->running = false;
+    vm->gc_enabled = true;
+
+    if (vm) {
+        /* Register built-in functions */
+        register_builtin_functions(vm);
+    }
+
+    return vm;
+}
+
+/**
+ * Destroy virtual machine instance and free all resources
+ */
+void destroy_vm(VM* vm) {
+    if (!vm) return;
+
+    vm->running = false;
+
+    // Free all values on the stack
+    for (size_t i = 0; i < vm->stack_top; i++) {
+        free_value(vm->stack[i]);
+    }
+
+    // Free global variable table
+    free_variable_table(&vm->globals);
+
+    // Free local variable table
+    if (vm->locals) {
+        free_variable_table(vm->locals);
+        free(vm->locals);
+    }
+
+    // Free loaded shared libraries
+    if (vm->loaded_libs) {
+        for (size_t i = 0; i < vm->loaded_lib_count; i++) {
+            if (vm->loaded_libs[i].handle) {
+#ifdef _WIN32
+                FreeLibrary((HMODULE)vm->loaded_libs[i].handle);
+#else
+                dlclose(vm->loaded_libs[i].handle);
+#endif
+            }
+            if (vm->loaded_libs[i].name) {
+                free(vm->loaded_libs[i].name);
+            }
+        }
+        free(vm->loaded_libs);
+    }
+
+    // Free instruction array and string operands
+    if (vm->instructions) {
+        for (size_t i = 0; i < vm->instruction_count; i++) {
+            Instruction* inst = &vm->instructions[i];
+            // Free all string operands
+            if (inst->opcode == OP_PUSH_STR || inst->opcode == OP_PUSH_IDENT ||
+                inst->opcode == OP_LOAD_VAR || inst->opcode == OP_STORE_VAR ||
+                inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_START ||
+                inst->opcode == OP_STRUCT_DEF || inst->opcode == OP_STRUCT_NEW ||
+                inst->opcode == OP_MEMBER_ACCESS || inst->opcode == OP_MEMBER_STORE ||
+                inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
+                if (inst->operand.str_value) {
+                    free(inst->operand.str_value);
+                }
+            }
+        }
+        free(vm->instructions);
+    }
+
+    // Free function definitions
+    if (vm->functions) {
+        for (size_t i = 0; i < vm->function_count; i++) {
+            if (vm->functions[i].name) free(vm->functions[i].name);
+            if (vm->functions[i].locals) free(vm->functions[i].locals);
+        }
+        free(vm->functions);
+    }
+
+    // Free struct definitions
+    if (vm->structs) {
+        for (size_t i = 0; i < vm->struct_count; i++) {
+            if (vm->structs[i].name) free(vm->structs[i].name);
+            if (vm->structs[i].members) {
+                for (size_t j = 0; j < vm->structs[i].member_count; j++) {
+                    if (vm->structs[i].members[j]) free(vm->structs[i].members[j]);
+                }
+                free(vm->structs[i].members);
+            }
+        }
+        free(vm->structs);
+    }
+
+    // Free error message
+    if (vm->error_message) free(vm->error_message);
+
+    free(vm);
+}
+
+/**
+ * Push value onto VM stack
+ */
+void vm_push(VM* vm, Value value) {
+    if (!vm) return;
+
+    if (vm->stack_top >= VM_STACK_SIZE) {
+        vm_error(vm, VM_STACK_OVERFLOW, "Stack overflow");
+        return;
+    }
+
+    vm->stack[vm->stack_top++] = value;
+}
+
+/**
+ * Pop value from VM stack
+ */
+Value vm_pop(VM* vm) {
+    if (!vm || vm->stack_top == 0) {
+        if (vm) vm_error(vm, VM_STACK_UNDERFLOW, "Stack underflow");
+        return create_null();
+    }
+
+    return vm->stack[--vm->stack_top];
+}
+
+/**
+ * Peek at value at distance from top of stack (without popping)
+ */
+Value vm_peek(VM* vm, int distance) {
+    if (!vm || vm->stack_top <= (size_t)distance) {
+        return create_null();
+    }
+
+    return vm->stack[vm->stack_top - 1 - distance];
+}
+
+/* ========== Value Creation Functions ========== */
+
+/**
+ * Create null value
+ */
+Value create_null() {
+    Value val;
+    val.type = VAL_NULL;
+    return val;
+}
+
+/**
+ * Create number value
+ */
+Value create_number(double num) {
+    Value val;
+    val.type = VAL_NUMBER;
+    val.as.number = num;
+    return val;
+}
+
+/**
+ * Create string value (copies the string)
+ */
+Value create_string(const char* str) {
+    Value val;
+    val.type = VAL_STRING;
+    val.as.string = str ? strdup(str) : nullptr;
+    return val;
+}
+
+/**
+ * Create boolean value
+ */
+Value create_bool(bool b) {
+    Value val;
+    val.type = VAL_BOOL;
+    val.as.boolean = b;
+    return val;
+}
+
+/**
+ * Create function value
+ */
+Value create_function(Function* func) {
+    Value val;
+    val.type = VAL_FUNCTION;
+    val.as.function = func;
+    return val;
+}
+
+/**
+ * Create native function value
+ */
+Value create_native(NativeFunction func) {
+    Value val;
+    val.type = VAL_NATIVE;
+    val.as.native = func;
+    return val;
+}
+
+/**
+ * Create empty list value
+ */
+Value create_list() {
+    Value val;
+    val.type = VAL_LIST;
+    val.as.list = (List*)malloc(sizeof(List));
+    if (val.as.list) {
+        val.as.list->items = nullptr;
+        val.as.list->count = 0;
+        val.as.list->capacity = 0;
+    }
+    return val;
+}
+
+/**
+ * Check if value is truthy (truthiness evaluation)
+ */
+bool is_truthy(Value value) {
+    switch (value.type) {
+        case VAL_NULL: return false;
+        case VAL_BOOL: return value.as.boolean;
+        case VAL_NUMBER: return value.as.number != 0;
+        default: return true; // Other types (string, function, etc.) are truthy
+    }
+}
+
+/**
+ * Compare two values for equality
+ */
+bool values_equal(Value a, Value b) {
+    if (a.type != b.type) return false;
+
+    switch (a.type) {
+        case VAL_NULL: return true;
+        case VAL_BOOL: return a.as.boolean == b.as.boolean;
+        case VAL_NUMBER: return a.as.number == b.as.number;
+        case VAL_STRING:
+            if (!a.as.string || !b.as.string) return a.as.string == b.as.string;
+            return strcmp(a.as.string, b.as.string) == 0;
+        default: return false; // Complex types not compared
+    }
+}
+
+/**
+ * Create a deep copy of a value
+ */
+Value copy_value(Value value) {
+    Value result;
+    result.type = value.type;
+    
+    switch (value.type) {
+        case VAL_NULL:
+            break;
+        case VAL_BOOL:
+            result.as.boolean = value.as.boolean;
+            break;
+        case VAL_NUMBER:
+            result.as.number = value.as.number;
+            break;
+        case VAL_STRING:
+            result.as.string = value.as.string ? strdup(value.as.string) : nullptr;
+            break;
+        case VAL_LIST:
+            if (value.as.list) {
+                result.as.list = malloc(sizeof(List));
+                result.as.list->capacity = value.as.list->capacity;
+                result.as.list->count = value.as.list->count;
+                if (value.as.list->items && value.as.list->count > 0) {
+                    result.as.list->items = malloc(sizeof(Value) * value.as.list->capacity);
+                    for (size_t i = 0; i < value.as.list->count; i++) {
+                        result.as.list->items[i] = copy_value(value.as.list->items[i]);
+                    }
+                } else {
+                    result.as.list->items = nullptr;
+                }
+            } else {
+                result.as.list = nullptr;
+            }
+            break;
+        case VAL_STRUCT_INSTANCE:
+            if (!value.as.instance) {
+                result.as.instance = nullptr;
+            }
+            else {
+                result.as.instance = (StructInstance*)malloc(sizeof(StructInstance));
+                result.as.instance->members = (Value*)malloc(sizeof(Value) * value.as.instance->struct_def->member_count);
+                for (int i = 0; i < value.as.instance->struct_def->member_count; i++) {
+                    result.as.instance->members[i] = copy_value(value.as.instance->members[i]);
+                }
+                /*
+                result.as.instance->struct_def = (Struct*)malloc(sizeof(Struct));
+                result.as.instance->struct_def->name = value.as.instance->struct_def->name ? strdup(value.as.instance->struct_def->name) : nullptr;
+                result.as.instance->struct_def->members = (char**)malloc(sizeof(char*) * value.as.instance->struct_def->member_count);
+                for (int i = 0; i < value.as.instance->struct_def->member_count; i++) {
+                    result.as.instance->struct_def->members[i] = value.as.instance->struct_def->members[i] ? strdup(value.as.instance->struct_def->members[i]) : nullptr;
+                }
+                result.as.instance->struct_def->member_count = value.as.instance->struct_def->member_count;
+                */
+                result.as.instance->struct_def = value.as.instance->struct_def;
+            }
+            break;
+        case VAL_NATIVE:
+            result.as.native = value.as.native;
+            break;
+        case VAL_FUNCTION:
+            result.as.function = value.as.function;
+            break;
+        default:
+            result = value;
+            break;
+    }
+    
+    return result;
+}
+
+/**
+ * Free memory occupied by value
+ */
+void free_value(Value value) {
+    switch (value.type) {
+        case VAL_STRING:
+            if (value.as.string) free(value.as.string);
+            break;
+        case VAL_LIST:
+            if (value.as.list) {
+                if (value.as.list->items) {
+                    // Free all elements in the list
+                    for (size_t i = 0; i < value.as.list->count; i++) {
+                        free_value(value.as.list->items[i]);
+                    }
+                    free(value.as.list->items);
+                }
+                free(value.as.list);
+            }
+            break;
+        case VAL_STRUCT_INSTANCE:
+            if (value.as.instance) {
+                if (value.as.instance->members) {
+                    // Free all members of struct instance
+                    for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
+                        free_value(value.as.instance->members[i]);
+                    }
+                    free(value.as.instance->members);
+                }
+                free(value.as.instance);
+            }
+            break;
+        default:
+            break; // Other types don't need special handling
+    }
+}
+
+/* ========== Error Handling Functions ========== */
+
+/**
+ * Set VM error state and error message
+ */
+void vm_error(VM* vm, VMError error, const char* format, ...) {
+    if (!vm) return;
+
+    vm->last_error = error;
+    vm->running = false;
+
+    if (vm->error_message) {
+        free(vm->error_message);
+        vm->error_message = nullptr;
+    }
+
+    char buffer[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    vm->error_message = strdup(buffer);
+}
+
+/**
+ * Get error string for error code
+ */
+const char* vm_error_string(VMError error) {
+    switch (error) {
+        case VM_OK: return "OK";
+        case VM_RUNTIME_ERROR: return "RuntimeError";
+        case VM_STACK_OVERFLOW: return "StackOverflow";
+        case VM_STACK_UNDERFLOW: return "StackUnderflow";
+        case VM_UNDEFINED_VARIABLE: return "UndefinedVariable";
+        case VM_TYPE_ERROR: return "TypeError";
+        case VM_DIVISION_BY_ZERO: return "DivisionByZero";
+        case VM_INDEX_OUT_OF_BOUNDS: return "IndexOutOfBounds";
+        case VM_UNDEFINED_FUNCTION: return "UndefinedFunction";
+        case VM_ARGUMENT_MISMATCH: return "ArgumentMismatch";
+        case VM_LOAD_ERROR: return "LoadError";
+        case VM_MEMORY_ERROR: return "MemoryError";
+        case VM_INVALID_OPCODE: return "InvalidOpcode";
+        case VM_UNDEFINED_MEMBER: return "UndefinedMember";
+        case VM_NOT_A_STRUCT: return "NotAStruct";
+        default: return "UnknownError";
+    }
+}
+
+/**
+ * Print error information to stderr
+ */
+void vm_print_error(VM* vm) {
+    if (!vm) return;
+
+    fprintf(stderr, "%s", vm_error_string(vm->last_error));
+    if (vm->error_message) {
+        fprintf(stderr, ": %s", vm->error_message);
+    }
+    fprintf(stderr, "\n");
+
+    if (vm->pc < vm->instruction_count) {
+        fprintf(stderr, "  at instruction %zu\n", vm->pc);
+    }
+}
+
+/**
+ * Print current stack state (for debugging)
+ */
+void vm_print_stack(VM* vm) {
+    if (!vm) return;
+
+    printf("Stack [%zu]: ", vm->stack_top);
+    for (size_t i = 0; i < vm->stack_top; i++) {
+        switch (vm->stack[i].type) {
+            case VAL_NULL: printf("null "); break;
+            case VAL_NUMBER: printf("%.6f ", vm->stack[i].as.number); break;
+            case VAL_STRING: printf("\"%s\" ", vm->stack[i].as.string); break;
+            case VAL_BOOL: printf("%s ", vm->stack[i].as.boolean ? "true" : "false"); break;
+            default: printf("<object> "); break; // Complex types only show type
+        }
+    }
+    printf("\n");
+}
+
+/* ========== Variable Operation Functions ========== */
+
+/**
+ * Get variable value (search in local variables first, then global variables)
+ */
+Value* vm_get_variable(VM* vm, const char* name) {
+    if (!vm || !name) return nullptr;
+
+    // First search local variables
+    if (vm->locals) {
+        Variable* var = find_variable(vm->locals, name);
+        if (var) return &var->value;
+    }
+
+    // Then search global variables
+    Variable* var = find_variable(&vm->globals, name);
+    if (var) return &var->value;
+
+    return nullptr;
+}
+
+/**
+ * Set variable value (set in local variables first, then global variables)
+ */
+bool vm_set_variable(VM* vm, const char* name, Value value) {
+    if (!vm || !name) return false;
+
+    // First try to set local variable
+    if (vm->locals) {
+        Variable* var = find_variable(vm->locals, name);
+        if (var) {
+            free_value(var->value);
+            var->value = copy_value(value);
+            // Check for global
+            Variable* var_g = find_variable(&vm->globals, name);
+            if (var_g) { // Is global
+                free_value(var_g->value);
+                var_g->value = copy_value(value);
+            }
+            return true;
+        }
+        return add_variable(vm->locals, name, value);
+    }
+
+    // Then try to set global variable
+    Variable* var = find_variable(&vm->globals, name);
+    if (var) {
+        free_value(var->value);
+        var->value = copy_value(value);
+        return true;
+    }
+
+    return add_variable(&vm->globals, name, value);
+}
+
+/**
+ * Define global variable
+ */
+bool vm_define_global(VM* vm, const char* name, Value value) {
+    if (!vm || !name) return false;
+    return add_variable(&vm->globals, name, value);
+}
+
+/**
+ * Register native function to global variables
+ */
+void vm_register_native(VM* vm, const char* name, NativeFunction func) {
+    if (!vm || !name || !func) return;
+
+    Value native_val = create_native(func);
+    vm_define_global(vm, name, native_val);
+}
+
+/**
+ * Push value to VM stack from external source
+ */
+void vm_push_external(VM* vm, Value value) {
+    if (!vm) return;
+    vm_push(vm, value);
+}
+
+/* ========== Module Loading Functions ========== */
+
+/**
+ * Check if file exists
+ */
+static bool file_exists(const char* filename) {
+    FILE* file = fopen(filename, "r");
+    if (file) {
+        fclose(file);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Load shared library and execute _sbLibInit
+ */
+static bool load_shared_library(VM* vm, const char* lib_path, const char* module_name) {
+#ifdef _WIN32
+    HMODULE handle = LoadLibrary(lib_path);
+    if (!handle) {
+        return false;
+    }
+    
+    typedef int (*LibInitFunc)(VM*);
+    LibInitFunc init_func = (LibInitFunc)GetProcAddress(handle, "_sbLibInit");
+    if (!init_func) {
+        FreeLibrary(handle);
+        return false;
+    }
+#else
+    void* handle = dlopen(lib_path, RTLD_LAZY);
+    if (!handle) {
+        return false;
+    }
+    
+    typedef int (*LibInitFunc)(VM*);
+    LibInitFunc init_func = (LibInitFunc)dlsym(handle, "_sbLibInit");
+    if (!init_func) {
+        dlclose(handle);
+        return false;
+    }
+#endif
+
+    /* Store library handle for cleanup */
+    LoadedLibrary* new_libs = (LoadedLibrary*)realloc(vm->loaded_libs, 
+                                                      (vm->loaded_lib_count + 1) * sizeof(LoadedLibrary));
+    if (!new_libs) {
+#ifdef _WIN32
+        FreeLibrary(handle);
+#else
+        dlclose(handle);
+#endif
+        vm_error(vm, VM_MEMORY_ERROR, "Failed to allocate memory for library tracking");
+        return false;
+    }
+    
+    vm->loaded_libs = new_libs;
+    vm->loaded_libs[vm->loaded_lib_count].handle = handle;
+    vm->loaded_libs[vm->loaded_lib_count].name = strdup(module_name);
+    vm->loaded_lib_count++;
+    
+    /* Call library initialization function */
+    int init_result = init_func(vm);
+    
+    /* Check initialization result */
+    if (init_result != 0) {
+        /* Initialization failed, cleanup */
+        vm->loaded_lib_count--;
+        free(vm->loaded_libs[vm->loaded_lib_count].name);
+#ifdef _WIN32
+        FreeLibrary(handle);
+#else
+        dlclose(handle);
+#endif
+        vm_error(vm, VM_LOAD_ERROR, "Library initialization failed: _sbLibInit returned %d", init_result);
+        vm->running = false;
+        return false;
+    }
+    
+    printf("Loaded shared library: %s\n", lib_path);
+    return true;
+}
+
+/**
+ * Load bytecode from .sbc file
+ */
+static bool load_bytecode_file(VM* vm, const char* filename, const char* module_name) {
+    BytecodeGenerator* gen = load_bytecode(filename);
+    if (!gen) {
+        return false;
+    }
+
+    /* Save current VM state */
+    size_t saved_pc = vm->pc;
+    Instruction* saved_instructions = vm->instructions;
+    size_t saved_instruction_count = vm->instruction_count;
+
+    /* Load and execute module bytecode */
+    if (!vm_load_bytecode(vm, gen)) {
+        destroy_bytecode_generator(gen);
+        return false;
+    }
+
+    printf("Loading bytecode module: %s\n", module_name);
+
+    VMError result = vm_execute(vm);
+
+    /* Restore VM state */
+    if (vm->instructions && vm->instructions != saved_instructions) {
+        for (size_t i = 0; i < vm->instruction_count; i++) {
+            Instruction* inst = &vm->instructions[i];
+            if (inst->opcode == OP_PUSH_STR || inst->opcode == OP_PUSH_IDENT ||
+                inst->opcode == OP_LOAD_VAR || inst->opcode == OP_STORE_VAR ||
+                inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_START ||
+                inst->opcode == OP_STRUCT_DEF || inst->opcode == OP_STRUCT_NEW ||
+                inst->opcode == OP_MEMBER_ACCESS || inst->opcode == OP_MEMBER_STORE ||
+                inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
+                if (inst->operand.str_value) free(inst->operand.str_value);
+            }
+        }
+        free(vm->instructions);
+    }
+
+    vm->instructions = saved_instructions;
+    vm->instruction_count = saved_instruction_count;
+    vm->pc = saved_pc;
+
+    destroy_bytecode_generator(gen);
+    return result == VM_OK;
+}
+
+/**
+ * Load source file and compile
+ */
+static bool load_source_file(VM* vm, const char* filename, const char* module_name) {
+    /* Open module file */
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        return false;
+    }
+
+    /* Read file content */
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    char* source = (char*)malloc(file_size + 1);
+    if (!source) {
+        fclose(file);
+        vm_error(vm, VM_MEMORY_ERROR, "Failed to allocate memory for module source");
+        return false;
+    }
+
+    fread(source, 1, file_size, file);
+    source[file_size] = '\0';
+    fclose(file);
+
+    /* Lexical analysis */
+    _sbToken* tokens = _sbLexer(source);
+    if (!tokens) {
+        free(source);
+        vm_error(vm, VM_LOAD_ERROR, "Failed to tokenize module '%s'", module_name);
+        return false;
+    }
+
+    /* Syntax analysis */
+    Parser* parser = create_tkstate(tokens);
+    if (!parser) {
+        free(tokens);
+        free(source);
+        vm_error(vm, VM_LOAD_ERROR, "Failed to create parser for module '%s'", module_name);
+        return false;
+    }
+
+    reset_error();
+    ASTNode* ast = parse_program(parser);
+
+    if (!ast || syntaxErrorDetector) {
+        destroy_tkstate(parser);
+        free(tokens);
+        free(source);
+        vm_error(vm, VM_LOAD_ERROR, "Failed to parse module '%s'", module_name);
+        return false;
+    }
+
+    /* Generate bytecode */
+    BytecodeGenerator* gen = create_bytecode_generator();
+    if (!gen) {
+        free_ast(ast);
+        destroy_tkstate(parser);
+        free(tokens);
+        free(source);
+        vm_error(vm, VM_MEMORY_ERROR, "Failed to create bytecode generator for module");
+        return false;
+    }
+
+    if (!generate_bytecode(gen, ast)) {
+        destroy_bytecode_generator(gen);
+        free_ast(ast);
+        destroy_tkstate(parser);
+        free(tokens);
+        free(source);
+        vm_error(vm, VM_LOAD_ERROR, "Failed to generate bytecode for module '%s'", module_name);
+        return false;
+    }
+
+    /* Save current VM state */
+    size_t saved_pc = vm->pc;
+
+    Instruction* saved_instructions = vm->instructions;
+    size_t saved_instruction_count = vm->instruction_count;
+
+    /* Load and execute module bytecode */
+    if (!vm_load_bytecode(vm, gen)) {
+        destroy_bytecode_generator(gen);
+        free_ast(ast);
+        destroy_tkstate(parser);
+        free(tokens);
+        free(source);
+        vm_error(vm, VM_LOAD_ERROR, "Failed to load bytecode for module '%s'", module_name);
+        return false;
+    }
+
+    printf("Loading module: %s\n", module_name);
+
+    VMError result = vm_execute(vm);
+
+    /* Restore VM state */
+    if (vm->instructions && vm->instructions != saved_instructions) {
+        for (size_t i = 0; i < vm->instruction_count; i++) {
+            Instruction* inst = &vm->instructions[i];
+            if (inst->opcode == OP_PUSH_STR || inst->opcode == OP_PUSH_IDENT ||
+                inst->opcode == OP_LOAD_VAR || inst->opcode == OP_STORE_VAR ||
+                inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_START ||
+                inst->opcode == OP_STRUCT_DEF || inst->opcode == OP_STRUCT_NEW ||
+                inst->opcode == OP_MEMBER_ACCESS || inst->opcode == OP_MEMBER_STORE ||
+                inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
+                if (inst->operand.str_value) free(inst->operand.str_value);
+            }
+        }
+        free(vm->instructions);
+    }
+
+    vm->instructions = saved_instructions;
+    vm->instruction_count = saved_instruction_count;
+    vm->pc = saved_pc;
+
+    /* Clean up resources */
+    destroy_bytecode_generator(gen);
+    free_ast(ast);
+    destroy_tkstate(parser);
+    freeTkList(tokens);
+    free(source);
+
+    return result == VM_OK;
+}
+
+/**
+ * Load and execute module
+ * Priority: .so/.dll -> .sbc -> .sb
+ */
+static bool load_module(VM* vm, const char* module_name) {
+    char filename[256];
+    
+    /* First try to load shared library (.so or .dll) */
+    snprintf(filename, sizeof(filename), "./%s%s", module_name, SHARED_LIB_EXT);
+    if (file_exists(filename)) {
+        if (load_shared_library(vm, filename, module_name)) {
+            return true;
+        }
+        /* If shared library exists but failed to load, continue trying other formats */
+        vm_error(vm, VM_LOAD_ERROR, "Failed to load shared library '%s'", filename);
+    }
+    
+    /* Then try to load bytecode file (.sbc) */
+    snprintf(filename, sizeof(filename), "%s.sbc", module_name);
+    if (file_exists(filename)) {
+        if (load_bytecode_file(vm, filename, module_name)) {
+            return true;
+        }
+        /* If bytecode file exists but failed to load, continue trying source file */
+        vm_error(vm, VM_LOAD_ERROR, "Failed to load bytecode file '%s'", filename);
+    }
+    
+    /* Finally try to load source file (.sb) */
+    snprintf(filename, sizeof(filename), "%s.sb", module_name);
+    if (file_exists(filename)) {
+        if (load_source_file(vm, filename, module_name)) {
+            return true;
+        }
+        vm_error(vm, VM_LOAD_ERROR, "Failed to load source file '%s'", filename);
+        return false;
+    }
+    
+    /* No module file found */
+    vm_error(vm, VM_LOAD_ERROR, "Cannot load module '%s': no compatible file found (.so/.dll, .sbc, or .sb)", module_name);
+    return false;
+}
+
+/* ========== Instruction Execution Functions ========== */
+
+/**
+ * Execute single instruction
+ */
+VMError vm_execute_instruction(VM* vm) {
+    if (!vm || vm->pc >= vm->instruction_count) {
+        return VM_RUNTIME_ERROR;
+    }
+
+    Instruction* inst = &vm->instructions[vm->pc++];
+
+    switch (inst->opcode) {
+        case OP_NOP:
+            // No operation
+            break;
+
+        case OP_PUSH_NUM:
+            // Push numeric constant
+            vm_push(vm, create_number(inst->operand.num_value));
+            break;
+
+        case OP_PUSH_STR:
+            // Push string constant
+            vm_push(vm, create_string(inst->operand.str_value));
+            break;
+
+        case OP_PUSH_IDENT:
+            // Push identifier (as string)
+            vm_push(vm, create_string(inst->operand.str_value));
+            break;
+
+        case OP_PUSH_TRUE:
+            // Push true
+            vm_push(vm, create_bool(true));
+            break;
+
+        case OP_PUSH_FALSE:
+            // Push false
+            vm_push(vm, create_bool(false));
+            break;
+
+        case OP_PUSH_NULL:
+            // Push null
+            vm_push(vm, create_null());
+            break;
+
+        case OP_POP:
+            // Pop value from stack
+            vm_pop(vm);
+            break;
+
+        case OP_DUP: {
+            // Duplicate top value
+            if (vm->stack_top == 0) {
+                vm_error(vm, VM_STACK_UNDERFLOW, "Cannot duplicate empty stack");
+                return VM_STACK_UNDERFLOW;
+            }
+            Value val = vm_peek(vm, 0);
+            vm_push(vm, val);
+            break;
+        }
+
+        case OP_ADD: {
+            // Addition operation (supports numbers and strings)
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type == VAL_NUMBER && b.type == VAL_NUMBER) {
+                vm_push(vm, create_number(a.as.number + b.as.number));
+            } else if (a.type == VAL_STRING && b.type == VAL_STRING) {
+                // String concatenation
+                size_t len = strlen(a.as.string) + strlen(b.as.string) + 1;
+                char* result = (char*)malloc(len);
+                if (result) {
+                    strcpy(result, a.as.string);
+                    strcat(result, b.as.string);
+                    Value str_val = create_string(result);
+                    free(result);
+                    vm_push(vm, str_val);
+                }
+            } else {
+                vm_error(vm, VM_TYPE_ERROR, "Invalid operands for addition");
+                //printf("---- DEBUG: a: %d, b: %d \n", a.type, b.type);
+                return VM_TYPE_ERROR;
+            }
+            free_value(a);
+            free_value(b);
+            break;
+        }
+
+        case OP_SUB: {
+            // Subtraction operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Subtraction requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_number(a.as.number - b.as.number));
+            break;
+        }
+
+        case OP_MUL: {
+            // Multiplication operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Multiplication requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_number(a.as.number * b.as.number));
+            break;
+        }
+
+        case OP_DIV: {
+            // Division operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Division requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            if (b.as.number == 0) {
+                vm_error(vm, VM_DIVISION_BY_ZERO, "Division by zero");
+                return VM_DIVISION_BY_ZERO;
+            }
+
+            vm_push(vm, create_number(a.as.number / b.as.number));
+            break;
+        }
+
+        case OP_MOD: {
+            // Modulo operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Modulo requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            if (b.as.number == 0) {
+                vm_error(vm, VM_DIVISION_BY_ZERO, "Modulo by zero");
+                return VM_DIVISION_BY_ZERO;
+            }
+
+            vm_push(vm, create_number(fmod(a.as.number, b.as.number)));
+            break;
+        }
+
+        case OP_POW: {
+            // Power operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Power requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_number(pow(a.as.number, b.as.number)));
+            break;
+        }
+
+        case OP_BIT_AND: {
+            // Bitwise AND operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Bitwise AND requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_number((double)((int)a.as.number & (int)b.as.number)));
+            break;
+        }
+
+        case OP_BIT_OR: {
+            // Bitwise OR operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Bitwise OR requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_number((double)((int)a.as.number | (int)b.as.number)));
+            break;
+        }
+
+        case OP_BIT_XOR: {
+            // Bitwise XOR operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Bitwise XOR requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_number((double)((int)a.as.number ^ (int)b.as.number)));
+            break;
+        }
+
+        case OP_BIT_NOT: {
+            // Bitwise NOT operation
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Bitwise NOT requires number");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_number((double)(~(int)a.as.number)));
+            break;
+        }
+
+        case OP_BIT_LSHIFT: {
+            // Left shift operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Left shift requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_number((double)((int)a.as.number << (int)b.as.number)));
+            break;
+        }
+
+        case OP_BIT_RSHIFT: {
+            // Right shift operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Right shift requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_number((double)((int)a.as.number >> (int)b.as.number)));
+            break;
+        }
+
+        case OP_LOGIC_AND: {
+            // Logical AND operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            vm_push(vm, create_bool(is_truthy(a) && is_truthy(b)));
+            free_value(a);
+            free_value(b);
+            break;
+        }
+
+        case OP_LOGIC_OR: {
+            // Logical OR operation
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            vm_push(vm, create_bool(is_truthy(a) || is_truthy(b)));
+            free_value(a);
+            free_value(b);
+            break;
+        }
+
+        case OP_LOGIC_NOT: {
+            // Logical NOT operation
+            Value a = vm_pop(vm);
+            vm_push(vm, create_bool(!is_truthy(a)));
+            free_value(a);
+            break;
+        }
+
+        case OP_EQ: {
+            // Equality comparison
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            vm_push(vm, create_bool(values_equal(a, b)));
+            free_value(a);
+            free_value(b);
+            break;
+        }
+
+        case OP_NEQ: {
+            // Inequality comparison
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            vm_push(vm, create_bool(!values_equal(a, b)));
+            free_value(a);
+            free_value(b);
+            break;
+        }
+
+        case OP_LT: {
+            // Less than comparison
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Comparison requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_bool(a.as.number < b.as.number));
+            break;
+        }
+
+        case OP_GT: {
+            // Greater than comparison
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Comparison requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_bool(a.as.number > b.as.number));
+            break;
+        }
+
+        case OP_LEQ: {
+            // Less than or equal comparison
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Comparison requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_bool(a.as.number <= b.as.number));
+            break;
+        }
+
+        case OP_GEQ: {
+            // Greater than or equal comparison
+            Value b = vm_pop(vm);
+            Value a = vm_pop(vm);
+
+            if (a.type != VAL_NUMBER || b.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Comparison requires numbers");
+                return VM_TYPE_ERROR;
+            }
+
+            vm_push(vm, create_bool(a.as.number >= b.as.number));
+            break;
+        }
+
+        case OP_LOAD_VAR: {
+            // Load variable value onto stack
+            const char* name = inst->operand.str_value;
+            Value* var = vm_get_variable(vm, name);
+
+            if (!var) {
+                Value* native_var = vm_get_variable(vm, name);
+                if (native_var && native_var->type == VAL_NATIVE) {
+                    vm_push(vm, *native_var);
+                } else {
+                    vm_error(vm, VM_UNDEFINED_VARIABLE, "Undefined variable '%s'", name);
+                    return VM_UNDEFINED_VARIABLE;
+                }
+            } else {
+                // Push a copy of the value to prevent double-free when used as function argument
+                vm_push(vm, *var);
+            }
+            break;
+        }
+
+        case OP_STORE_GLOBAL:
+        case OP_STORE_VAR: {
+            // Store top value to variable
+            Value value = vm_pop(vm);
+            const char* name = inst->operand.str_value;
+
+            if (inst->opcode == OP_STORE_GLOBAL)
+                add_variable(&vm->globals, name, value);
+
+            if (!vm_set_variable(vm, name, value)) {
+                vm_error(vm, VM_RUNTIME_ERROR, "Failed to store variable '%s'", name);
+                free_value(value);
+                return VM_RUNTIME_ERROR;
+            }
+            // Free the original value since vm_set_variable makes a copy
+            free_value(value);
+            break;
+        }
+
+        case OP_JUMP: {
+            // Unconditional jump
+            vm->pc = inst->operand.int_value;
+            break;
+        }
+
+        case OP_JUMP_IF_FALSE: {
+            // Jump if condition is false
+            Value cond = vm_pop(vm);
+            if (!is_truthy(cond)) {
+                vm->pc = inst->operand.int_value;
+            }
+            free_value(cond);
+            break;
+        }
+
+        case OP_JUMP_IF_TRUE: {
+            // Jump if condition is true
+            Value cond = vm_pop(vm);
+            if (is_truthy(cond)) {
+                vm->pc = inst->operand.int_value;
+            }
+            free_value(cond);
+            break;
+        }
+
+        case OP_CALL: {
+            // Function call
+            int arg_count = inst->operand.int_value;
+
+            // Get arguments
+            Value args[arg_count];
+            for (int i = arg_count - 1; i >= 0; i--) {
+                args[i] = vm_pop(vm);
+            }
+
+            // Get function name
+            Value func_name = vm_pop(vm);
+
+            if (func_name.type == VAL_STRING) {
+                Value* func_val = vm_get_variable(vm, func_name.as.string);
+
+                if (!func_val) {
+                    vm_error(vm, VM_UNDEFINED_FUNCTION, "Undefined function '%s'", func_name.as.string);
+                    free_value(func_name);
+                    for (int i = 0; i < arg_count; i++) {
+                        free_value(args[i]);
+                    }
+                    return VM_UNDEFINED_FUNCTION;
+                }
+
+                if (func_val->type == VAL_NATIVE) {
+                    // Call native function
+                    Value result = func_val->as.native(vm, args, arg_count);
+                    vm_push(vm, result);
+
+                    for (int i = 0; i < arg_count; i++) {
+                        free_value(args[i]);
+                    }
+                } else if (func_val->type == VAL_FUNCTION) {
+                    // Call user-defined function
+                    Function* func = func_val->as.function;
+                    
+                    // Check argument count
+                    if (func->param_count != (size_t)arg_count) {
+                        vm_error(vm, VM_ARGUMENT_MISMATCH, 
+                                "Function '%s' expects %zu arguments, got %d", 
+                                func_name.as.string, func->param_count, arg_count);
+                        free_value(func_name);
+                        for (int i = 0; i < arg_count; i++) {
+                            free_value(args[i]);
+                        }
+                        return VM_ARGUMENT_MISMATCH;
+                    }
+                    
+                    // Save current state
+                    if (vm->call_depth >= VM_CALL_STACK_SIZE) {
+                        vm_error(vm, VM_STACK_OVERFLOW, "Call stack overflow");
+                        free_value(func_name);
+                        for (int i = 0; i < arg_count; i++) {
+                            free_value(args[i]);
+                        }
+                        return VM_STACK_OVERFLOW;
+                    }
+                    
+                    // Create call frame
+                    CallFrame* frame = &vm->call_stack[vm->call_depth++];
+                    frame->function = func;
+                    frame->return_addr = vm->pc;
+                    frame->stack_base = vm->stack_top - arg_count;
+                    
+                    // Save current local scope and create new one
+                    VariableTable* old_locals = vm->locals;
+                    vm->locals = (VariableTable*)malloc(sizeof(VariableTable));
+                    init_variable_table(vm->locals);
+                    
+                    // Store old locals in frame for restoration on return
+                    frame->locals = (Value*)old_locals;  // Temporarily store pointer
+                    frame->local_count = 0;  // Flag to indicate it's a VariableTable pointer
+                    
+                    // Push arguments back onto stack for the function to use
+                    for (int i = 0; i < arg_count; i++) {
+                        vm_push(vm, args[i]);
+                    }
+                    
+                    // Jump to function body
+                    vm->pc = func->start_addr;
+                } else {
+                    vm_error(vm, VM_TYPE_ERROR, "'%s' is not a function", func_name.as.string);
+                    free_value(func_name);
+                    for (int i = 0; i < arg_count; i++) {
+                        free_value(args[i]);
+                    }
+                    return VM_TYPE_ERROR;
+                }
+            }
+
+            free_value(func_name);
+            break;
+        }
+
+        case OP_RETURN: {
+            // Function return
+            if (vm->call_depth > 0) {
+                CallFrame* frame = &vm->call_stack[--vm->call_depth];
+                vm->pc = frame->return_addr;
+
+                // Clean up current local variables and restore previous scope
+                if (vm->locals) {
+                    free_variable_table(vm->locals);
+                    free(vm->locals);
+                }
+                
+                // Restore previous local scope (stored in frame->locals)
+                vm->locals = (VariableTable*)frame->locals;
+            } else {
+                return VM_OK; // Main program return
+            }
+            break;
+        }
+
+        case OP_FUNC_START:
+        case OP_FUNC_END:
+            // Function definition start/end (skip function body execution)
+            while (vm->pc < vm->instruction_count &&
+                   vm->instructions[vm->pc].opcode != OP_FUNC_END) {
+                vm->pc++;
+            }
+            if (vm->pc < vm->instruction_count) vm->pc++;
+            break;
+
+        case OP_BLOCK_START:
+        case OP_BLOCK_END:
+            // Code block start/end (no operation)
+            break;
+
+        case OP_LOAD_MODULE: {
+            // Load module
+            const char* module_name = inst->operand.str_value;
+            if (!load_module(vm, module_name)) {
+                return VM_LOAD_ERROR;
+            }
+            break;
+        }
+
+        case OP_STRUCT_DEF: {
+            // Struct definition (skip)
+            break;
+        }
+
+        case OP_STRUCT_NEW: {
+            // Create struct instance
+            const char* struct_name = inst->operand.str_value;
+
+            // Find struct definition
+            Struct* struct_def = nullptr;
+            for (size_t i = 0; i < vm->struct_count; i++) {
+                if (strcmp(vm->structs[i].name, struct_name) == 0) {
+                    struct_def = &vm->structs[i];
+                    break;
+                }
+            }
+
+            // If definition not found, create new struct definition
+            if (!struct_def) {
+                struct_def = (Struct*)malloc(sizeof(Struct));
+                struct_def->name = strdup(struct_name);
+                struct_def->members = nullptr;
+                struct_def->member_count = 0;
+            }
+
+            // Create struct instance
+            StructInstance* instance = (StructInstance*)malloc(sizeof(StructInstance));
+            if (!instance) {
+                vm_error(vm, VM_MEMORY_ERROR, "Failed to create struct instance");
+                return VM_MEMORY_ERROR;
+            }
+
+            instance->struct_def = struct_def;
+            instance->members = (Value*)calloc(struct_def->member_count, sizeof(Value));
+
+            // Initialize member values to null
+            for (size_t i = 0; i < struct_def->member_count; i++) {
+                instance->members[i] = create_null();
+            }
+
+            Value val;
+            val.type = VAL_STRUCT_INSTANCE;
+            val.as.instance = instance;
+            vm_push(vm, val);
+            break;
+        }
+
+        case OP_MEMBER_ACCESS: {
+            // Access struct member
+            Value obj = vm_pop(vm);
+            const char* member_name = inst->operand.str_value;
+
+            if (obj.type != VAL_STRUCT_INSTANCE) {
+                vm_error(vm, VM_NOT_A_STRUCT, "Cannot access member of non-struct");
+                free_value(obj);
+                return VM_NOT_A_STRUCT;
+            }
+
+            StructInstance* instance = obj.as.instance;
+            size_t member_idx = (size_t)-1;
+
+            // Find member index
+            for (size_t i = 0; i < instance->struct_def->member_count; i++) {
+                if (instance->struct_def->members && instance->struct_def->members[i] &&
+                    strcmp(instance->struct_def->members[i], member_name) == 0) {
+                    member_idx = i;
+                    break;
+                }
+            }
+
+            if (member_idx == (size_t)-1) {
+                vm_error(vm, VM_UNDEFINED_MEMBER, "Undefined member '%s'", member_name);
+                free_value(obj);
+                return VM_UNDEFINED_MEMBER;
+            }
+
+            vm_push(vm, copy_value(instance->members[member_idx]));
+            //vm_push(vm, instance->members[member_idx]);
+            // Don't free obj since it's a reference type
+            break;
+        }
+
+        case OP_MEMBER_STORE: {
+            // Set struct member value
+            Value obj = vm_pop(vm);
+            Value value = vm_pop(vm);
+            const char* member_name = inst->operand.str_value;
+
+            if (obj.type != VAL_STRUCT_INSTANCE) {
+                vm_error(vm, VM_NOT_A_STRUCT, "Cannot store member of non-struct");
+                free_value(obj);
+                free_value(value);
+                return VM_NOT_A_STRUCT;
+            }
+
+            StructInstance* instance = obj.as.instance;
+            size_t member_idx = (size_t)-1;
+
+            // Find member index
+            for (size_t i = 0; i < instance->struct_def->member_count; i++) {
+                if (instance->struct_def->members &&
+                    strcmp(instance->struct_def->members[i], member_name) == 0) {
+                    member_idx = i;
+                    break;
+                }
+            }
+
+            if (member_idx == (size_t)-1) {
+                vm_error(vm, VM_UNDEFINED_MEMBER, "Undefined member '%s'", member_name);
+                // Don't free obj here since it's a reference type
+                free_value(value);
+                return VM_UNDEFINED_MEMBER;
+            } else {
+                // Update existing member value
+                free_value(instance->members[member_idx]);
+                instance->members[member_idx] = copy_value(value);
+                free_value(value);
+                //printf("--- DEBUG\n");
+            }
+            // Don't free obj since it's a reference type that's still stored in the variable
+            break;
+        }
+
+        case OP_LIST_NEW: {
+            // Create new list
+            int count = inst->operand.int_value;
+            Value list = create_list();
+
+            if (count > 0 && list.as.list) {
+                list.as.list->items = (Value*)malloc(count * sizeof(Value));
+                list.as.list->capacity = count;
+                list.as.list->count = 0;
+            }
+
+            vm_push(vm, list);
+            break;
+        }
+
+        case OP_LIST_PUSH: {
+            // Add element to list
+            Value item = vm_pop(vm);
+            Value list = vm_pop(vm);
+
+            if (list.type != VAL_LIST) {
+                vm_error(vm, VM_TYPE_ERROR, "Cannot push to non-list");
+                free_value(item);
+                free_value(list);
+                return VM_TYPE_ERROR;
+            }
+
+            List* l = list.as.list;
+            if (l->count >= l->capacity) {
+                // Expand list capacity
+                size_t new_capacity = l->capacity == 0 ? 4 : l->capacity * 2;
+                Value* new_items = (Value*)realloc(l->items, new_capacity * sizeof(Value));
+                if (!new_items) {
+                    vm_error(vm, VM_MEMORY_ERROR, "Failed to resize list");
+                    free_value(item);
+                    free_value(list);
+                    return VM_MEMORY_ERROR;
+                }
+                l->items = new_items;
+                l->capacity = new_capacity;
+            }
+
+            l->items[l->count++] = item;
+            vm_push(vm, list);
+            break;
+        }
+
+        case OP_LIST_ACCESS: {
+            // Access list element
+            Value index = vm_pop(vm);
+            Value list = vm_pop(vm);
+
+            if (list.type != VAL_LIST) {
+                vm_error(vm, VM_TYPE_ERROR, "Cannot index non-list");
+                free_value(index);
+                free_value(list);
+                return VM_TYPE_ERROR;
+            }
+
+            if (index.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "List index must be number");
+                free_value(index);
+                free_value(list);
+                return VM_TYPE_ERROR;
+            }
+
+            int idx = (int)index.as.number;
+            if (idx < 0 || idx >= (int)list.as.list->count) {
+                vm_error(vm, VM_INDEX_OUT_OF_BOUNDS, "List index out of bounds");
+                free_value(index);
+                free_value(list);
+                return VM_INDEX_OUT_OF_BOUNDS;
+            }
+
+            vm_push(vm, list.as.list->items[idx]);
+            break;
+        }
+
+        case OP_HALT:
+            // Stop execution
+            return VM_OK;
+
+        default:
+            vm_error(vm, VM_INVALID_OPCODE, "Invalid opcode: %d", inst->opcode);
+            return VM_INVALID_OPCODE;
+    }
+
+    return VM_OK;
+}
+
+/**
+ * Execute VM bytecode
+ */
+VMError vm_execute(VM* vm) {
+    if (!vm || !vm->instructions) {
+        return VM_RUNTIME_ERROR;
+    }
+
+    vm->running = true;
+    vm->last_error = VM_OK;
+
+    // Main execution loop
+    while (vm->running && vm->pc < vm->instruction_count) {
+        VMError error = vm_execute_instruction(vm);
+        if (error != VM_OK) {
+            vm->running = false;
+            return error;
+        }
+    }
+
+    return VM_OK;
+}
+
+/**
+ * Load bytecode from bytecode generator to VM
+ */
+bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen) {
+    if (!vm || !gen) return false;
+
+    vm->instruction_count = gen->instructions->count;
+    vm->instructions = (Instruction*)malloc(vm->instruction_count * sizeof(Instruction));
+    if (!vm->instructions) {
+        vm_error(vm, VM_MEMORY_ERROR, "Failed to allocate instruction memory");
+        return false;
+    }
+
+    // Copy instructions
+    for (size_t i = 0; i < vm->instruction_count; i++) {
+        Instruction* src = (Instruction*)gen->instructions->items[i];
+        vm->instructions[i] = *src;
+
+        // Copy string operands
+        if (src->opcode == OP_PUSH_STR || src->opcode == OP_PUSH_IDENT ||
+            src->opcode == OP_LOAD_VAR || src->opcode == OP_STORE_VAR ||
+            src->opcode == OP_LOAD_MODULE || src->opcode == OP_FUNC_START ||
+            src->opcode == OP_STRUCT_DEF || src->opcode == OP_STRUCT_NEW ||
+            src->opcode == OP_MEMBER_ACCESS || src->opcode == OP_MEMBER_STORE) {
+            if (src->operand.str_value) {
+                vm->instructions[i].operand.str_value = strdup(src->operand.str_value);
+            }
+        }
+    }
+
+    // Load function definitions and register them as global variables
+    if (gen->functions && gen->functions->count > 0) {
+        vm->function_count = gen->functions->count;
+        vm->functions = (Function*)malloc(vm->function_count * sizeof(Function));
+
+        for (size_t i = 0; i < vm->function_count; i++) {
+            FunctionInfo* src = (FunctionInfo*)gen->functions->items[i];
+            vm->functions[i].name = strdup(src->name);
+            vm->functions[i].start_addr = src->start_addr;
+            vm->functions[i].param_count = src->param_count;
+            vm->functions[i].locals = nullptr;
+            
+            // Register function as a global variable
+            Value func_val = create_function(&vm->functions[i]);
+            vm_define_global(vm, vm->functions[i].name, func_val);
+        }
+    }
+
+    // Load struct definitions
+    if (gen->structs && gen->structs->count > 0) {
+        vm->struct_count = gen->structs->count;
+        vm->structs = (Struct*)malloc(vm->struct_count * sizeof(Struct));
+
+        for (size_t i = 0; i < vm->struct_count; i++) {
+            StructInfo* src = (StructInfo*)gen->structs->items[i];
+            vm->structs[i].name = strdup(src->name);
+            vm->structs[i].member_count = src->members ? src->members->count : 0;
+
+            if (vm->structs[i].member_count > 0) {
+                vm->structs[i].members = (char**)malloc(vm->structs[i].member_count * sizeof(char*));
+                for (size_t j = 0; j < vm->structs[i].member_count; j++) {
+                    vm->structs[i].members[j] = strdup((char*)src->members->items[j]);
+                }
+            } else {
+                vm->structs[i].members = nullptr;
+            }
+        }
+    }
+
+    // Initialize global variables
+    if (gen->globals) {
+        for (size_t i = 0; i < gen->globals->count; i++) {
+            char* global_name = (char*)gen->globals->items[i];
+            vm_define_global(vm, global_name, create_null());
+        }
+    }
+
+    vm->pc = 0;
+    return true;
+}
+
+/**
+ * Load bytecode from file to VM
+ */
+bool vm_load_from_file(VM* vm, const char* filename) {
+    if (!vm || !filename) return false;
+
+    BytecodeGenerator* gen = load_bytecode(filename);
+    if (!gen) {
+        vm_error(vm, VM_LOAD_ERROR, "Failed to load bytecode from file");
+        return false;
+    }
+
+    bool result = vm_load_bytecode(vm, gen);
+    destroy_bytecode_generator(gen);
+
+    return result;
+}
+
+/* ========== Garbage Collection Functions (to be implemented) ========== */
+
+/**
+ * Garbage collection (mark-and-sweep algorithm)
+ */
+void vm_gc_collect(VM* vm) {
+    if (!vm || !vm->gc_enabled) return;
+    // TODO: Implement complete garbage collection
+}
+
+/**
+ * Mark live objects
+ */
+void vm_gc_mark(VM* vm, Value value) {
+    if (!vm) return;
+    // TODO: Implement marking logic
+}
+
+/**
+ * Sweep unmarked objects
+ */
+void vm_gc_sweep(VM* vm) {
+    if (!vm) return;
+    // TODO: Implement sweeping logic
+}

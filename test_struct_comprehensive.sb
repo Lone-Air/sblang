@@ -1,0 +1,42 @@
+// Comprehensive struct test
+struct Person {
+    name, age, height
+}
+
+// Create a person instance
+person1 -> Person;
+
+// Set all members
+person1.name = "Alice";
+person1.age = 25;
+person1.height = 170;
+
+// Print all members to verify storage
+print("Name: ");
+print(person1.name);
+print("Age: ");
+print(person1.age);
+print("Height: ");
+print(person1.height);
+
+// Modify members
+person1.age = 26;
+person1.height = 171;
+
+// Print modified values
+print("Updated Age: ");
+print(person1.age);
+print("Updated Height: ");
+print(person1.height);
+
+// Create another instance
+person2 -> Person;
+person2.name = "Bob";
+person2.age = 30;
+person2.height = 180;
+
+// Verify both instances maintain separate data
+print("Person 1 name: ");
+print(person1.name);
+print("Person 2 name: ");
+print(person2.name);

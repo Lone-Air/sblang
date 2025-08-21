@@ -1,0 +1,8 @@
+// Simple struct test
+struct Test {
+    x, y
+}
+
+obj -> Test;
+obj.x = 10;
+print("x =", obj.x);

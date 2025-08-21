@@ -1,0 +1,39 @@
+// 简化的SB Language Demo
+// 只测试基本功能，不包含复杂的函数调用
+
+// 模块加载
+//load module1;
+
+// 结构体定义
+struct Point {
+    x, y
+}
+
+// 基本变量操作
+a = 10;
+b = 20;
+
+// 基本算术运算
+sum = a + b;
+diff = b - a;
+product = a * b;
+
+// 比较运算
+greater = a > b;
+equal = a == b;
+
+// 位运算
+bitwise = a ^ b;
+bitwise_not = ~a;
+
+// 结构体操作
+point1 -> Point;
+point1.x = 5;
+point1.y = 7;
+
+// 全局变量
+global result;
+result = sum + product;
+
+print(result);
+print(point1.x + point1.y);

@@ -1,0 +1,8 @@
+/home/laman28/Projects/sb-lang/CMakeFiles/sbl.dir
+/home/laman28/Projects/sb-lang/CMakeFiles/test_bytecode.dir
+/home/laman28/Projects/sb-lang/CMakeFiles/test_vm.dir
+/home/laman28/Projects/sb-lang/CMakeFiles/test_vm_module.dir
+/home/laman28/Projects/sb-lang/CMakeFiles/math.dir
+/home/laman28/Projects/sb-lang/CMakeFiles/test_simple_lib.dir
+/home/laman28/Projects/sb-lang/CMakeFiles/edit_cache.dir
+/home/laman28/Projects/sb-lang/CMakeFiles/rebuild_cache.dir

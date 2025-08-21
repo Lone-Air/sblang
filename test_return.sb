@@ -1,0 +1,15 @@
+// Test function return value
+function test_return() {
+    return 42;
+}
+
+result = test_return();
+print("Result:", result);
+
+// Test function with parameters
+function calculate(x, y) {
+    return x + y;
+}
+
+sum = calculate(10, 20);
+print("Sum:", sum);

@@ -1,0 +1,20 @@
+// Test struct operations
+struct Structure1 {
+    member1, member2,
+    member3, member4
+}
+
+variable2 -> Structure1;
+print("After creating struct");
+
+variable2.member1 = 2;
+print("After setting member1 to 2");
+
+variable2.member2 = 3;
+print("After setting member2 to 3");
+
+print("member1:", variable2.member1);
+print("member2:", variable2.member2);
+
+sum = variable2.member1 + variable2.member2;
+print("Sum:", sum);

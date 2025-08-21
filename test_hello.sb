@@ -1,0 +1,18 @@
+// Test SB program
+x = 10;
+y = 20;
+result = x + y;
+
+print("Hello from SB Language!");
+print("x =", x, '\n');
+print("y =", y, '\n');
+print("x + y =", result, '\n');
+
+// Test input function
+name = input("Enter your name: ");
+print("Hello,", name, '\n');
+
+// Test type and len functions
+print("Type of x:", type(x), '\n');
+print("Type of name:", type(name), '\n');
+print("Length of name:", len(name), '\n');

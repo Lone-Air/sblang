@@ -1,0 +1,125 @@
+PROGRAM:
+  LOAD_STATEMENT:
+    MODULES:
+      IDENTIFIER: module1
+      IDENTIFIER: module2
+  FUNCTION_DEF:
+    NAME:
+      IDENTIFIER: a
+    PARAMETERS:
+      IDENTIFIER: argument1
+      IDENTIFIER: argument2
+    BODY:
+      BLOCK:
+        ASSIGNMENT:
+          LEFT:
+            IDENTIFIER: variable1
+          RIGHT:
+            IDENTIFIER: argument1
+        WHILE_STATEMENT:
+          CONDITION:
+            BINARY_OP: <=
+              IDENTIFIER: variable1
+              IDENTIFIER: argument2
+          BODY:
+            BLOCK:
+              IF_STATEMENT:
+                CONDITION:
+                  UNARY_OP: !
+                    BINARY_OP: ==
+                      BINARY_OP: %
+                        IDENTIFIER: argument2
+                        IDENTIFIER: argument1
+                      NUMBER: 2.000000
+                THEN:
+                  BLOCK:
+                    ASSIGNMENT:
+                      LEFT:
+                        IDENTIFIER: variable1
+                      RIGHT:
+                        BINARY_OP: +
+                          IDENTIFIER: variable1
+                          NUMBER: 2.000000
+                ELSE:
+                  BLOCK:
+                    ASSIGNMENT:
+                      LEFT:
+                        IDENTIFIER: variable1
+                      RIGHT:
+                        BINARY_OP: +
+                          IDENTIFIER: variable1
+                          NUMBER: 3.000000
+        FOR_STATEMENT:
+          INIT:
+            ASSIGNMENT:
+              LEFT:
+                IDENTIFIER: i
+              RIGHT:
+                NUMBER: 0.000000
+          CONDITION:
+            BINARY_OP: <
+              IDENTIFIER: i
+              NUMBER: 10.000000
+          UPDATE:
+            ASSIGNMENT:
+              LEFT:
+                IDENTIFIER: i
+              RIGHT:
+                BINARY_OP: +
+                  IDENTIFIER: i
+                  NUMBER: 1.000000
+          BODY:
+            BLOCK:
+              ASSIGNMENT:
+                LEFT:
+                  IDENTIFIER: variable1
+                RIGHT:
+                  BINARY_OP: +
+                    IDENTIFIER: variable1
+                    IDENTIFIER: i
+  STRUCT_DEF:
+    NAME:
+      IDENTIFIER: Structure1
+    MEMBERS:
+      IDENTIFIER: member1
+      IDENTIFIER: member2
+      IDENTIFIER: member3
+      IDENTIFIER: member4
+  STRUCT_INSTANTIATION:
+    VARIABLE:
+      IDENTIFIER: variable2
+    STRUCT_TYPE:
+      IDENTIFIER: Structure1
+  ASSIGNMENT:
+    LEFT:
+      MEMBER_ACCESS:
+        OBJECT:
+          IDENTIFIER: variable2
+        MEMBER:
+          IDENTIFIER: member1
+    RIGHT:
+      NUMBER: 2.000000
+  ASSIGNMENT:
+    LEFT:
+      IDENTIFIER: b
+    RIGHT:
+      UNARY_OP: !
+        FUNCTION_CALL:
+          FUNCTION_NAME:
+            IDENTIFIER: a
+          ARGUMENTS:
+            NUMBER: 1.000000
+            NUMBER: 2.000000
+  ASSIGNMENT:
+    LEFT:
+      IDENTIFIER: c
+    RIGHT:
+      UNARY_OP: ~
+        BINARY_OP: ^
+          NUMBER: 25.000000
+          BINARY_OP: **
+            NUMBER: 12.000000
+            NUMBER: 5.000000
+  GLOBAL_STATEMENT:
+    VARIABLES:
+      IDENTIFIER: c

@@ -1,0 +1,441 @@
+GNU gdb (GDB) 16.3
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-pc-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from build-debug/sbl...
+(gdb) b builtin_
+builtin_exit   builtin_input  builtin_len    builtin_print  builtin_type   
+(gdb) b builtin_input 
+Breakpoint 1 at 0x17f43: file /home/laman28/Projects/sb-lang/builtin/base_functions.c, line 50.
+(gdb) r
+Starting program: /home/laman28/Projects/sb-lang/build-debug/sbl ./test_hello.sb
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.archlinux.org>
+Enable debuginfod for this session? (y or [n]) 
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/libthread_db.so.1".
+Executing './test_hello.sb'...
+Hello from SB Language!x = 10 
+y = 20 
+x + y = 30 
+
+Breakpoint 1, builtin_input (vm=0x555555578b60, args=0x7fffffffd160, arg_count=1) at /home/laman28/Projects/sb-lang/builtin/base_functions.c:50
+50	Value builtin_input(VM* vm, Value* args, int arg_count) {
+(gdb) n
+52	    if (arg_count > 0 && args[0].type == VAL_STRING) {
+(gdb) 
+53	        printf("%s", args[0].as.string);
+(gdb) 
+54	        fflush(stdout);
+(gdb) 
+Enter your name: 58	    if (fgets(buffer, sizeof(buffer), stdin)) {
+(gdb) n
+sb
+60	        size_t len = strlen(buffer);
+(gdb) n
+61	        if (len > 0 && buffer[len - 1] == '\n') {
+(gdb) p buffer
+$1 = "sb\n\000\000\000\000\000\377\377\377\377\000\000\000\000ȡ\300\367\377\177\000\000\200\037\000\000\377\377\000\000{\344VUUU\000\000\240=WUUU\000\000\260\315\377\377\377\177\000\000\346!VUUU\000\000\002\000\000\000\000\000\000\000\240=WUUU\000\000\260\315\377\377\377\177\000\000\3641\311\367\377\177\000\000\001\000\000\000\000\000\000\000\270PUUUU\000\000\320\315\377\377\377\177\000\000>\345\320\367\377\177\000\000\001\000\000\000\000\000\000\000<?\375\367\377\177\000\000\000\316\377\377\377\177\000\000u\353\310\367\377\177\000\000\300\245\340\367\377\177\000\000\0205WUUU\000\000Q\317\377\377\377\177\000\000\000\320\377\367\377\177\000\0000\316\377\377\377\177\000\000\266"...
+(gdb) p len
+$2 = 3
+(gdb) n
+62	            buffer[len - 1] = '\0';
+(gdb) 
+64	        return create_string(buffer);
+(gdb) p buffer
+$3 = "sb\000\000\000\000\000\000\377\377\377\377\000\000\000\000ȡ\300\367\377\177\000\000\200\037\000\000\377\377\000\000{\344VUUU\000\000\240=WUUU\000\000\260\315\377\377\377\177\000\000\346!VUUU\000\000\002\000\000\000\000\000\000\000\240=WUUU\000\000\260\315\377\377\377\177\000\000\3641\311\367\377\177\000\000\001\000\000\000\000\000\000\000\270PUUUU\000\000\320\315\377\377\377\177\000\000>\345\320\367\377\177\000\000\001\000\000\000\000\000\000\000<?\375\367\377\177\000\000\000\316\377\377\377\177\000\000u\353\310\367\377\177\000\000\300\245\340\367\377\177\000\000\0205WUUU\000\000Q\317\377\377\377\177\000\000\000\320\377\367\377\177\000\0000\316\377\377\377\177\000\000\266"...
+(gdb) p sizeof(buffer)
+$4 = 1024
+(gdb) b create_string
+Breakpoint 2 at 0x555555558109: file /home/laman28/Projects/sb-lang/vm/vm.c, line 293.
+(gdb) n
+
+Breakpoint 2, create_string (str=0x7fffffffcd40 "sb") at /home/laman28/Projects/sb-lang/vm/vm.c:293
+293	    val.type = VAL_STRING;
+(gdb) n
+294	    val.as.string = str ? strdup(str) : nullptr;
+(gdb) p str
+$5 = 0x7fffffffcd40 "sb"
+(gdb) n
+295	    return val;
+(gdb) p val.as.string
+$6 = 0x555555573a00 "sb"
+(gdb) n
+296	}
+(gdb) 
+builtin_input (vm=0x555555578b60, args=0x7fffffffd160, arg_count=1) at /home/laman28/Projects/sb-lang/builtin/base_functions.c:68
+68	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1382
+1382	                    vm_push(vm, result);
+(gdb) 
+1384	                    for (int i = 0; i < arg_count; i++) {
+(gdb) 
+1385	                        free_value(args[i]);
+(gdb) b fre
+fread                free                 free_ast             freeaddrinfo         fremovexattr         frexp                frexpf32             frexpf64x            
+fread@plt            free@plt             free_value           freeifaddrs          freopen              frexpf               frexpf32x            frexpl               
+fread_unlocked       freeTkList           free_variable_table  freelocale           freopen64            frexpf128            frexpf64             
+(gdb) b free_va
+free_value           free_variable_table  
+(gdb) b free_va
+free_value           free_variable_table  
+(gdb) b free_value 
+Breakpoint 3 at 0x555555558646: file /home/laman28/Projects/sb-lang/vm/vm.c, line 443.
+(gdb) p args
+$7 = {{type = VAL_STRING, as = {number = 4.6355705446883536e-310, string = 0x555555573a20 "Enter your name: ", boolean = 32, function = 0x555555573a20, native = 0x555555573a20, struct_def = 0x555555573a20, instance = 0x555555573a20, 
+      list = 0x555555573a20}}}
+(gdb) n
+
+Breakpoint 3, free_value (value=...) at /home/laman28/Projects/sb-lang/vm/vm.c:443
+443	    switch (value.type) {
+(gdb) p args
+No symbol "args" in current context.
+(gdb) l
+438	
+439	/**
+440	 * Free memory occupied by value
+441	 */
+442	void free_value(Value value) {
+443	    switch (value.type) {
+444	        case VAL_STRING:
+445	            if (value.as.string) free(value.as.string);
+446	            break;
+447	        case VAL_LIST:
+(gdb) n
+445	            if (value.as.string) free(value.as.string);
+(gdb) 
+446	            break;
+(gdb) 
+474	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1384
+1384	                    for (int i = 0; i < arg_count; i++) {
+(gdb) 
+1399	            free_value(func_name);
+(gdb) 
+
+Breakpoint 3, free_value (value=...) at /home/laman28/Projects/sb-lang/vm/vm.c:443
+443	    switch (value.type) {
+(gdb) 
+445	            if (value.as.string) free(value.as.string);
+(gdb) p va
+va_list       valloc        value         values_equal  vasprintf     
+(gdb) p va
+va_list       valloc        value         values_equal  vasprintf     
+(gdb) p value
+$8 = {type = VAL_STRING, as = {number = 4.6355705446851916e-310, string = 0x5555555739e0 "input", boolean = 224, function = 0x5555555739e0, native = 0x5555555739e0, struct_def = 0x5555555739e0, instance = 0x5555555739e0, 
+    list = 0x5555555739e0}}
+(gdb) n
+446	            break;
+(gdb) 
+474	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1400
+1400	            break;
+(gdb) 
+1668	    return VM_OK;
+(gdb) 
+1669	}
+(gdb) 
+vm_execute (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1685
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+
+Breakpoint 2, create_string (str=0x555555573eb0 "print") at /home/laman28/Projects/sb-lang/vm/vm.c:293
+293	    val.type = VAL_STRING;
+(gdb) n
+294	    val.as.string = str ? strdup(str) : nullptr;
+(gdb) 
+295	    return val;
+(gdb) 
+296	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:966
+966	            break;
+(gdb) 
+1668	    return VM_OK;
+(gdb) 
+1669	}
+(gdb) 
+vm_execute (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1685
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+
+Breakpoint 2, create_string (str=0x555555573ed0 "Hello,") at /home/laman28/Projects/sb-lang/vm/vm.c:293
+293	    val.type = VAL_STRING;
+(gdb) 
+294	    val.as.string = str ? strdup(str) : nullptr;
+(gdb) 
+295	    return val;
+(gdb) 
+296	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:961
+961	            break;
+(gdb) 
+1668	    return VM_OK;
+(gdb) 
+1669	}
+(gdb) n
+vm_execute (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1685
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+
+Breakpoint 2, create_string (str=0x555555573f10 "\n") at /home/laman28/Projects/sb-lang/vm/vm.c:293
+293	    val.type = VAL_STRING;
+(gdb) 
+294	    val.as.string = str ? strdup(str) : nullptr;
+(gdb) n
+295	    return val;
+(gdb) 
+296	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:961
+961	            break;
+(gdb) 
+1668	    return VM_OK;
+(gdb) 
+1669	}
+(gdb) 
+vm_execute (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1685
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+Hello, sb 
+
+Breakpoint 3, free_value (value=...) at /home/laman28/Projects/sb-lang/vm/vm.c:443
+443	    switch (value.type) {
+(gdb) 
+445	            if (value.as.string) free(value.as.string);
+(gdb) p value
+$9 = {type = VAL_STRING, as = {number = 4.6355705447112782e-310, string = 0x555555573bf0 "Hello,", boolean = 240, function = 0x555555573bf0, native = 0x555555573bf0, struct_def = 0x555555573bf0, instance = 0x555555573bf0, 
+    list = 0x555555573bf0}}
+(gdb) n
+446	            break;
+(gdb) 
+474	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1384
+1384	                    for (int i = 0; i < arg_count; i++) {
+(gdb) 
+1385	                        free_value(args[i]);
+(gdb) 
+
+Breakpoint 3, free_value (value=...) at /home/laman28/Projects/sb-lang/vm/vm.c:443
+443	    switch (value.type) {
+(gdb) 
+445	            if (value.as.string) free(value.as.string);
+(gdb) p value
+$10 = {type = VAL_STRING, as = {number = 4.6355705446883536e-310, string = 0x555555573a20 "sb", boolean = 32, function = 0x555555573a20, native = 0x555555573a20, struct_def = 0x555555573a20, instance = 0x555555573a20, 
+    list = 0x555555573a20}}
+(gdb) n
+446	            break;
+(gdb) 
+474	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1384
+1384	                    for (int i = 0; i < arg_count; i++) {
+(gdb) 
+1385	                        free_value(args[i]);
+(gdb) 
+
+Breakpoint 3, free_value (value=...) at /home/laman28/Projects/sb-lang/vm/vm.c:443
+443	    switch (value.type) {
+(gdb) p value
+$11 = {type = VAL_STRING, as = {number = 4.6355705447128592e-310, string = 0x555555573c10 "\n", boolean = 16, function = 0x555555573c10, native = 0x555555573c10, struct_def = 0x555555573c10, instance = 0x555555573c10, 
+    list = 0x555555573c10}}
+(gdb) n
+445	            if (value.as.string) free(value.as.string);
+(gdb) 
+446	            break;
+(gdb) 
+474	}
+(gdb) n
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1384
+1384	                    for (int i = 0; i < arg_count; i++) {
+(gdb) 
+1399	            free_value(func_name);
+(gdb) 
+
+Breakpoint 3, free_value (value=...) at /home/laman28/Projects/sb-lang/vm/vm.c:443
+443	    switch (value.type) {
+(gdb) p value
+$12 = {type = VAL_STRING, as = {number = 4.6355705447096972e-310, string = 0x555555573bd0 "print", boolean = 208, function = 0x555555573bd0, native = 0x555555573bd0, struct_def = 0x555555573bd0, instance = 0x555555573bd0, 
+    list = 0x555555573bd0}}
+(gdb) n
+445	            if (value.as.string) free(value.as.string);
+(gdb) 
+446	            break;
+(gdb) 
+474	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1400
+1400	            break;
+(gdb) 
+1668	    return VM_OK;
+(gdb) 
+1669	}
+(gdb) 
+vm_execute (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1685
+1685	        if (error != VM_OK) {
+(gdb) p value
+No symbol "value" in current context.
+(gdb) n
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+
+Breakpoint 2, create_string (str=0x555555573f30 "print") at /home/laman28/Projects/sb-lang/vm/vm.c:293
+293	    val.type = VAL_STRING;
+(gdb) p value
+No symbol "value" in current context.
+(gdb) n
+294	    val.as.string = str ? strdup(str) : nullptr;
+(gdb) 
+295	    return val;
+(gdb) 
+296	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:966
+966	            break;
+(gdb) 
+1668	    return VM_OK;
+(gdb) 
+1669	}
+(gdb) 
+vm_execute (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1685
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) n
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) n
+
+Breakpoint 2, create_string (str=0x555555573f50 "Type of x:") at /home/laman28/Projects/sb-lang/vm/vm.c:293
+293	    val.type = VAL_STRING;
+(gdb) n
+294	    val.as.string = str ? strdup(str) : nullptr;
+(gdb) 
+295	    return val;
+(gdb) 
+296	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:961
+961	            break;
+(gdb) 
+1668	    return VM_OK;
+(gdb) 
+1669	}
+(gdb) 
+vm_execute (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1685
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+
+Breakpoint 2, create_string (str=0x555555573f70 "type") at /home/laman28/Projects/sb-lang/vm/vm.c:293
+293	    val.type = VAL_STRING;
+(gdb) 
+294	    val.as.string = str ? strdup(str) : nullptr;
+(gdb) 
+295	    return val;
+(gdb) 
+296	}
+(gdb) 
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:966
+966	            break;
+(gdb) 
+1668	    return VM_OK;
+(gdb) 
+1669	}
+(gdb) 
+vm_execute (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1685
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+1685	        if (error != VM_OK) {
+(gdb) 
+1683	    while (vm->running && vm->pc < vm->instruction_count) {
+(gdb) 
+1684	        VMError error = vm_execute_instruction(vm);
+(gdb) 
+
+Breakpoint 2, create_string (str=0x55555556e88a "number") at /home/laman28/Projects/sb-lang/vm/vm.c:293
+293	    val.type = VAL_STRING;
+(gdb) 
+294	    val.as.string = str ? strdup(str) : nullptr;
+(gdb) 
+295	    return val;
+(gdb) 
+296	}
+(gdb) 
+builtin_type (vm=0x555555578b60, args=0x7fffffffd160, arg_count=1) at /home/laman28/Projects/sb-lang/builtin/base_functions.c:125
+125	}
+(gdb) n
+vm_execute_instruction (vm=0x555555578b60) at /home/laman28/Projects/sb-lang/vm/vm.c:1382
+1382	                    vm_push(vm, result);
+(gdb) 
+1384	                    for (int i = 0; i < arg_count; i++) {
+(gdb) 
+1385	                        free_value(args[i]);
+(gdb) 
+
+Breakpoint 3, free_value (value=...) at /home/laman28/Projects/sb-lang/vm/vm.c:443
+443	    switch (value.type) {
+(gdb) 
+472	            break; // Other types don't need special handling
+(gdb) p value
+$13 = {type = VAL_NUMBER, as = {number = 10, string = 0x4024000000000000 <error: Cannot access memory at address 0x4024000000000000>, boolean = false, function = 0x4024000000000000, native = 0x4024000000000000, 
+    struct_def = 0x4024000000000000, instance = 0x4024000000000000, list = 0x4024000000000000}}
+(gdb) quit
+A debugging session is active.
+
+	Inferior 1 [process 134165] will be killed.
