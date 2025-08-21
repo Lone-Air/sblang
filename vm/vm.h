@@ -11,9 +11,8 @@
 #include "../bytecode/bytecode.h"
 #include <stdbool.h>
 
-#define VM_STACK_SIZE 1024      /* 操作数栈大小 */
-#define VM_CALL_STACK_SIZE 256  /* 调用栈深度限制 */
-#define VM_MAX_GLOBALS 256      /* 最大全局变量数量 */
+#define VM_INITIAL_STACK_SIZE 1024      /* 初始操作数栈大小 */
+#define VM_INITIAL_CALL_STACK_SIZE 256  /* 初始调用栈深度 */
 
 /* 值类型枚举 */
 typedef enum {
@@ -134,12 +133,14 @@ struct VM {
     size_t pc;                      /* 程序计数器 */
     
     /* 操作数栈 */
-    Value stack[VM_STACK_SIZE];     /* 操作数栈 */
+    Value* stack;                   /* 动态操作数栈 */
     size_t stack_top;               /* 栈顶指针 */
+    size_t stack_capacity;          /* 操作数栈容量 */
     
     /* 调用栈 */
-    CallFrame call_stack[VM_CALL_STACK_SIZE];  /* 调用栈 */
+    CallFrame* call_stack;          /* 动态调用栈 */
     size_t call_depth;              /* 调用深度 */
+    size_t call_capacity;           /* 调用栈容量 */
     
     /* 变量表 */
     VariableTable globals;          /* 全局变量表 */

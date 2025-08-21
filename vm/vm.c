@@ -108,9 +108,22 @@ VM* create_vm() {
     vm->instruction_count = 0;
     vm->pc = 0; // Program counter
 
-    /* Initialize stack */
+    /* Initialize dynamic stack */
+    vm->stack = (Value*)malloc(VM_INITIAL_STACK_SIZE * sizeof(Value));
     vm->stack_top = 0;
+    vm->stack_capacity = VM_INITIAL_STACK_SIZE;
+    
+    /* Initialize dynamic call stack */
+    vm->call_stack = (CallFrame*)malloc(VM_INITIAL_CALL_STACK_SIZE * sizeof(CallFrame));
     vm->call_depth = 0;
+    vm->call_capacity = VM_INITIAL_CALL_STACK_SIZE;
+    
+    if (!vm->stack || !vm->call_stack) {
+        if (vm->stack) free(vm->stack);
+        if (vm->call_stack) free(vm->call_stack);
+        free(vm);
+        return nullptr;
+    }
 
     /* Initialize variable tables */
     init_variable_table(&vm->globals);
@@ -148,9 +161,19 @@ void destroy_vm(VM* vm) {
 
     vm->running = false;
 
-    // Free all values on the stack
-    for (size_t i = 0; i < vm->stack_top; i++) {
-        free_value(vm->stack[i]);
+    // Free dynamic stack and all values on it
+    if (vm->stack) {
+        for (size_t i = 0; i < vm->stack_top; i++) {
+            free_value(vm->stack[i]);
+        }
+        free(vm->stack);
+        vm->stack = nullptr;
+    }
+
+    // Free dynamic call stack
+    if (vm->call_stack) {
+        free(vm->call_stack);
+        vm->call_stack = nullptr;
     }
 
     // Free global variable table
@@ -160,6 +183,7 @@ void destroy_vm(VM* vm) {
     if (vm->locals) {
         free_variable_table(vm->locals);
         free(vm->locals);
+        vm->locals = nullptr;
     }
 
     // Free loaded shared libraries
@@ -174,9 +198,12 @@ void destroy_vm(VM* vm) {
             }
             if (vm->loaded_libs[i].name) {
                 free(vm->loaded_libs[i].name);
+                vm->loaded_libs[i].name = nullptr;
             }
         }
         free(vm->loaded_libs);
+        vm->loaded_libs = nullptr;
+        vm->loaded_lib_count = 0;
     }
 
     // Free instruction array and string operands
@@ -192,37 +219,71 @@ void destroy_vm(VM* vm) {
                 inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
                 if (inst->operand.str_value) {
                     free(inst->operand.str_value);
+                    inst->operand.str_value = nullptr;
                 }
             }
         }
         free(vm->instructions);
+        vm->instructions = nullptr;
+        vm->instruction_count = 0;
     }
 
     // Free function definitions
     if (vm->functions) {
         for (size_t i = 0; i < vm->function_count; i++) {
-            if (vm->functions[i].name) free(vm->functions[i].name);
-            if (vm->functions[i].locals) free(vm->functions[i].locals);
+            if (vm->functions[i].name) {
+                free(vm->functions[i].name);
+                vm->functions[i].name = nullptr;
+            }
+            if (vm->functions[i].locals) {
+                free(vm->functions[i].locals);
+                vm->functions[i].locals = nullptr;
+            }
         }
         free(vm->functions);
+        vm->functions = nullptr;
+        vm->function_count = 0;
     }
 
     // Free struct definitions
     if (vm->structs) {
         for (size_t i = 0; i < vm->struct_count; i++) {
-            if (vm->structs[i].name) free(vm->structs[i].name);
+            if (vm->structs[i].name) {
+                free(vm->structs[i].name);
+                vm->structs[i].name = nullptr;
+            }
             if (vm->structs[i].members) {
                 for (size_t j = 0; j < vm->structs[i].member_count; j++) {
-                    if (vm->structs[i].members[j]) free(vm->structs[i].members[j]);
+                    if (vm->structs[i].members[j]) {
+                        free(vm->structs[i].members[j]);
+                        vm->structs[i].members[j] = nullptr;
+                    }
                 }
                 free(vm->structs[i].members);
+                vm->structs[i].members = nullptr;
             }
+            vm->structs[i].member_count = 0;
         }
         free(vm->structs);
+        vm->structs = nullptr;
+        vm->struct_count = 0;
     }
 
     // Free error message
-    if (vm->error_message) free(vm->error_message);
+    if (vm->error_message) {
+        free(vm->error_message);
+        vm->error_message = nullptr;
+    }
+
+    // Clear remaining fields
+    vm->stack_top = 0;
+    vm->stack_capacity = 0;
+    vm->call_depth = 0;
+    vm->call_capacity = 0;
+    vm->pc = 0;
+    vm->last_error = VM_OK;
+    vm->running = false;
+    vm->gc_enabled = false;
 
     free(vm);
 }
@@ -233,9 +294,16 @@ void destroy_vm(VM* vm) {
 void vm_push(VM* vm, Value value) {
     if (!vm) return;
 
-    if (vm->stack_top >= VM_STACK_SIZE) {
-        vm_error(vm, VM_STACK_OVERFLOW, "Stack overflow");
-        return;
+    /* Check if stack needs expansion */
+    if (vm->stack_top >= vm->stack_capacity) {
+        size_t new_capacity = vm->stack_capacity * 2;
+        Value* new_stack = (Value*)realloc(vm->stack, new_capacity * sizeof(Value));
+        if (!new_stack) {
+            vm_error(vm, VM_MEMORY_ERROR, "Failed to expand stack");
+            return;
+        }
+        vm->stack = new_stack;
+        vm->stack_capacity = new_capacity;
     }
 
     vm->stack[vm->stack_top++] = value;
@@ -1420,14 +1488,20 @@ VMError vm_execute_instruction(VM* vm) {
                         return VM_ARGUMENT_MISMATCH;
                     }
                     
-                    // Save current state
-                    if (vm->call_depth >= VM_CALL_STACK_SIZE) {
-                        vm_error(vm, VM_STACK_OVERFLOW, "Call stack overflow");
-                        free_value(func_name);
-                        for (int i = 0; i < arg_count; i++) {
-                            free_value(args[i]);
+                    // Check if call stack needs expansion
+                    if (vm->call_depth >= vm->call_capacity) {
+                        size_t new_capacity = vm->call_capacity * 2;
+                        CallFrame* new_call_stack = (CallFrame*)realloc(vm->call_stack, new_capacity * sizeof(CallFrame));
+                        if (!new_call_stack) {
+                            vm_error(vm, VM_MEMORY_ERROR, "Failed to expand call stack");
+                            free_value(func_name);
+                            for (int i = 0; i < arg_count; i++) {
+                                free_value(args[i]);
+                            }
+                            return VM_MEMORY_ERROR;
                         }
-                        return VM_STACK_OVERFLOW;
+                        vm->call_stack = new_call_stack;
+                        vm->call_capacity = new_capacity;
                     }
                     
                     // Create call frame

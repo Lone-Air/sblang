@@ -131,6 +131,10 @@ _sbToken* _sbPreLexer(const char* src){ // Pre-Lexer
                     RESET();
                     nummode = 0;
                 }
+                if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
+                    UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
+                    RESET();
+                }
                 SETPOS(col, line, pos);
                 append(buffer, c, nullptr);
                 NEXT_C(c, src);
@@ -187,6 +191,10 @@ end_of_note:
                     RESET();
                     nummode = 0;
                 }
+                if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
+                    UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
+                    RESET();
+                }
                 SETPOS(col, line, pos);
                 append(buffer, c, nullptr);
                 NEXT_C(c, src);
@@ -218,6 +226,10 @@ end_of_note:
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
+                }
+                if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
+                    UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
+                    RESET();
                 }
                 SETPOS(col, line, pos);
                 append(buffer, c, nullptr);
@@ -251,6 +263,10 @@ end_of_note:
                     RESET();
                     nummode = 0;
                 }
+                if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
+                    UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
+                    RESET();
+                }
                 SETPOS(col, line, pos);
                 append(buffer, c, nullptr);
                 NEXT_C(c, src);
@@ -282,6 +298,10 @@ end_of_note:
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
+                }
+                if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
+                    UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
+                    RESET();
                 }
                 SETPOS(col, line, pos);
                 append(buffer, c, nullptr);
@@ -315,6 +335,10 @@ end_of_note:
                     RESET();
                     nummode = 0;
                 }
+                if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
+                    UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
+                    RESET();
+                }
                 SETPOS(col, line, pos);
                 append(buffer, c, nullptr);
                 NEXT_C(c, src);
@@ -347,6 +371,10 @@ end_of_note:
                     RESET();
                     nummode = 0;
                     
+                }
+                if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
+                    UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
+                    RESET();
                 }
                 SETPOS(col, line, pos);
                 append(buffer, c, nullptr);
@@ -645,7 +673,15 @@ void freeTkList(_sbToken* tk){
 #ifdef _SBL_LEXER_TEST
 
 int main(){
-    const char* s = "fprintf(stdout, \"{token: %s, line: %d, column: %d, type: %d}\\\\n\", t.tk, t.line, t.column, t.type);";
+    const char* s = "function f1(arg1){\n"
+                    "    if(arg1>1024){\n"
+                    "        return arg1;\n"
+                    "    }\n"
+                    "    else{\n"
+                    "        return f1(arg1 + 1);\n"
+                    "    }\n"
+                    "}\n"
+                    "print(\"result: \", f1(0), '\n');";
     _sbToken* _l = _sbLexer(s);
 
     _sbToken* _l_s = _l;
