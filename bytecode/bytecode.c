@@ -196,7 +196,7 @@ void emit_instruction_with_str(BytecodeGenerator* gen, OpCode opcode, const char
     if (!inst) return;
     
     inst->opcode = opcode;
-    inst->operand.str_value = strdup(value);
+    inst->operand.str_value = _s_strdup(value);
     
     dynarray_push(gen->instructions, inst);
     gen->current_addr++;
@@ -245,7 +245,7 @@ int add_constant(BytecodeGenerator* gen, double value) {
 int add_string_constant(BytecodeGenerator* gen, const char* str) {
     if (!gen || !str) return -1;
     
-    char* constant = strdup(str);
+    char* constant = _s_strdup(str);
     if (!constant) return -1;
     
     dynarray_push(gen->constants, constant);
@@ -262,7 +262,7 @@ int register_global(BytecodeGenerator* gen, const char* name) {
         }
     }
     
-    char* global = strdup(name);
+    char* global = _s_strdup(name);
     if (!global) return -1;
     
     dynarray_push(gen->globals, global);
@@ -288,7 +288,7 @@ int register_function(BytecodeGenerator* gen, const char* name, size_t param_cou
     FunctionInfo* func = (FunctionInfo*)malloc(sizeof(FunctionInfo));
     if (!func) return -1;
     
-    func->name = strdup(name);
+    func->name = _s_strdup(name);
     func->start_addr = gen->current_addr;
     func->param_count = param_count;
     
@@ -302,7 +302,7 @@ int register_struct(BytecodeGenerator* gen, const char* name, DynArray* members)
     StructInfo* st = (StructInfo*)malloc(sizeof(StructInfo));
     if (!st) return -1;
     
-    st->name = strdup(name);
+    st->name = _s_strdup(name);
     st->members = members;
     
     dynarray_push(gen->structs, st);
@@ -672,7 +672,7 @@ bool generate_struct(BytecodeGenerator* gen, ASTNode* node) {
         for (int i = 0; i < members->data.list.count; i++) {
             ASTNode* member = members->data.list.items[i];
             if (member->type == _sbIDENTIFIER) {
-                char* member_name = strdup(member->data.str_value);
+                char* member_name = _s_strdup(member->data.str_value);
                 dynarray_push(member_list, member_name);
             }
         }

@@ -149,7 +149,7 @@ static Options parse_arguments(int argc, char** argv) {
                     fprintf(stderr, "Error: -o requires an argument\n");
                     exit(1);
                 }
-                options.output_file = strdup(argv[++i]);
+                options.output_file = _s_strdup(argv[++i]);
             } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
                 print_version();
                 exit(0);

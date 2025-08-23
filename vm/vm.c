@@ -98,7 +98,7 @@ static bool add_variable(VariableTable* table, const char* name, Value value) {
     }
 
     /* Add new variable */
-    table->vars[table->count].name = strdup(name);
+    table->vars[table->count].name = _s_strdup(name);
     table->vars[table->count].value = copy_value(value);
     table->count++;
 
@@ -371,7 +371,7 @@ Value create_number(double num) {
 Value create_string(const char* str) {
     Value val;
     val.type = VAL_STRING;
-    val.as.string = str ? strdup(str) : nullptr;
+    val.as.string = str ? _s_strdup(str) : nullptr;
     return val;
 }
 
@@ -466,7 +466,7 @@ Value copy_value(Value value) {
             result.as.number = value.as.number;
             break;
         case VAL_STRING:
-            result.as.string = value.as.string ? strdup(value.as.string) : nullptr;
+            result.as.string = value.as.string ? _s_strdup(value.as.string) : nullptr;
             break;
         case VAL_LIST:
             if (value.as.list) {
@@ -500,10 +500,10 @@ Value copy_value(Value value) {
 
                 /*
                 result.as.instance->struct_def = (Struct*)malloc(sizeof(Struct));
-                result.as.instance->struct_def->name = value.as.instance->struct_def->name ? strdup(value.as.instance->struct_def->name) : nullptr;
+                result.as.instance->struct_def->name = value.as.instance->struct_def->name ? _s_strdup(value.as.instance->struct_def->name) : nullptr;
                 result.as.instance->struct_def->members = (char**)malloc(sizeof(char*) * value.as.instance->struct_def->member_count);
                 for (int i = 0; i < value.as.instance->struct_def->member_count; i++) {
-                    result.as.instance->struct_def->members[i] = value.as.instance->struct_def->members[i] ? strdup(value.as.instance->struct_def->members[i]) : nullptr;
+                    result.as.instance->struct_def->members[i] = value.as.instance->struct_def->members[i] ? _s_strdup(value.as.instance->struct_def->members[i]) : nullptr;
                 }
                 result.as.instance->struct_def->member_count = value.as.instance->struct_def->member_count;
                 */
@@ -594,7 +594,7 @@ void vm_error(VM* vm, VMError error, const char* format, ...) {
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    vm->error_message = strdup(buffer);
+    vm->error_message = _s_strdup(buffer);
 }
 
 /**
@@ -839,7 +839,7 @@ static bool load_shared_library(VM* vm, const char* lib_path, const char* module
     
     vm->loaded_libs = new_libs;
     vm->loaded_libs[vm->loaded_lib_count].handle = handle;
-    vm->loaded_libs[vm->loaded_lib_count].name = strdup(module_name);
+    vm->loaded_libs[vm->loaded_lib_count].name = _s_strdup(module_name);
     vm->loaded_lib_count++;
     
     /* Call library initialization function */
@@ -966,7 +966,7 @@ static bool append_module_instructions(VM* vm, BytecodeGenerator* gen, size_t of
             src->opcode == OP_MEMBER_ACCESS || src->opcode == OP_MEMBER_STORE ||
             src->opcode == OP_LOAD_GLOBAL || src->opcode == OP_STORE_GLOBAL) {
             if (src->operand.str_value) {
-                vm->instructions[dest_idx].operand.str_value = strdup(src->operand.str_value);
+                vm->instructions[dest_idx].operand.str_value = _s_strdup(src->operand.str_value);
             }
         }
         
@@ -995,7 +995,7 @@ static bool append_module_instructions(VM* vm, BytecodeGenerator* gen, size_t of
             FunctionInfo* src = (FunctionInfo*)gen->functions->items[i];
             size_t dest_idx = old_func_count + i;
             
-            vm->functions[dest_idx].name = strdup(src->name);
+            vm->functions[dest_idx].name = _s_strdup(src->name);
             vm->functions[dest_idx].start_addr = src->start_addr + offset; // Adjust function address
             vm->functions[dest_idx].param_count = src->param_count;
             vm->functions[dest_idx].locals = nullptr;
@@ -1870,7 +1870,7 @@ VMError vm_execute_instruction(VM* vm) {
             // If definition not found, create new struct definition
             if (!struct_def) {
                 struct_def = (Struct*)malloc(sizeof(Struct));
-                struct_def->name = strdup(struct_name);
+                struct_def->name = _s_strdup(struct_name);
                 struct_def->members = nullptr;
                 struct_def->member_count = 0;
             }
@@ -2048,7 +2048,7 @@ VMError vm_execute_instruction(VM* vm) {
                 return VM_INDEX_OUT_OF_BOUNDS;
             }
 
-            vm_push(vm, list.as.list->items[idx]);
+            vm_push(vm, copy_value(list.as.list->items[list.as.list->count - idx - 1]));
             break;
         }
 
@@ -2115,7 +2115,7 @@ bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen) {
             src->opcode == OP_MEMBER_ACCESS || src->opcode == OP_MEMBER_STORE ||
             src->opcode == OP_LOAD_GLOBAL || src->opcode == OP_STORE_GLOBAL) {
             if (src->operand.str_value) {
-                vm->instructions[i].operand.str_value = strdup(src->operand.str_value);
+                vm->instructions[i].operand.str_value = _s_strdup(src->operand.str_value);
             }
         }
     }
@@ -2127,7 +2127,7 @@ bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen) {
 
         for (size_t i = 0; i < vm->function_count; i++) {
             FunctionInfo* src = (FunctionInfo*)gen->functions->items[i];
-            vm->functions[i].name = strdup(src->name);
+            vm->functions[i].name = _s_strdup(src->name);
             vm->functions[i].start_addr = src->start_addr;
             vm->functions[i].param_count = src->param_count;
             vm->functions[i].locals = nullptr;
@@ -2145,13 +2145,13 @@ bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen) {
 
         for (size_t i = 0; i < vm->struct_count; i++) {
             StructInfo* src = (StructInfo*)gen->structs->items[i];
-            vm->structs[i].name = strdup(src->name);
+            vm->structs[i].name = _s_strdup(src->name);
             vm->structs[i].member_count = src->members ? src->members->count : 0;
 
             if (vm->structs[i].member_count > 0) {
                 vm->structs[i].members = (char**)malloc(vm->structs[i].member_count * sizeof(char*));
                 for (size_t j = 0; j < vm->structs[i].member_count; j++) {
-                    vm->structs[i].members[j] = strdup((char*)src->members->items[j]);
+                    vm->structs[i].members[j] = _s_strdup((char*)src->members->items[j]);
                 }
             }
             else {
