@@ -84,7 +84,7 @@ static Value builtin_input(VM* vm, Value* args, int arg_count) {
         if (len > 0 && buffer[len - 1] == '\n') {
             buffer[len - 1] = '\0';
         }
-        return create_string(buffer);
+        return create_string(vm, buffer);
     }
 
     return create_null();
@@ -148,7 +148,7 @@ static Value builtin_chr(VM* vm, Value* args, int arg_count) {
         char result_str[2];
         result_str[0] = (char)args[0].as.number;
         result_str[1] = '\0';
-        return create_string(result_str);
+        return create_string(vm, result_str);
     }
     else {
         vm_error(vm, VM_TYPE_ERROR, "chr() expects a number");
@@ -165,25 +165,25 @@ static Value builtin_type(VM* vm, Value* args, int arg_count) {
 
     switch (args[0].type) {
         case VAL_NULL:
-            return create_string("null");
+            return create_string(vm, "null");
         case VAL_NUMBER:
-            return create_string("number");
+            return create_string(vm, "number");
         case VAL_STRING:
-            return create_string("string");
+            return create_string(vm,"string");
         case VAL_BOOL:
-            return create_string("bool");
+            return create_string(vm,"bool");
         case VAL_FUNCTION:
-            return create_string("function");
+            return create_string(vm,"function");
         case VAL_NATIVE:
-            return create_string("native");
+            return create_string(vm,"native");
         case VAL_STRUCT:
-            return create_string("struct");
+            return create_string(vm,"struct");
         case VAL_STRUCT_INSTANCE:
-            return create_string("instance");
+            return create_string(vm,"instance");
         case VAL_LIST:
-            return create_string("list");
+            return create_string(vm,"list");
         default:
-            return create_string("unknown");
+            return create_string(vm,"unknown");
     }
 }
 
@@ -211,26 +211,26 @@ static Value builtin_toString(VM* vm, Value* args, int arg_count) {
 
     switch (args[0].type) {
         case VAL_NULL:
-            return create_string("null");
+            return create_string(vm, "null");
         case VAL_NUMBER:
             char* _s = double_to_string(args[0].as.number);
-            Value v = create_string(_s);
+            Value v = create_string(vm,_s);
             free(_s);
             return v;
         case VAL_STRING:
-            return create_string(args[0].as.string);
+            return create_string(vm,args[0].as.string);
         case VAL_BOOL:
-            return create_string(args[0].as.boolean ? "true" : "false");
+            return create_string(vm,args[0].as.boolean ? "true" : "false");
         case VAL_FUNCTION:
             char* _s1 = calloc(12 + strlen(args[0].as.function->name), sizeof(char));
             strcpy(_s1, "<function:");
             strcat(_s1, args[0].as.function->name);
             strcat(_s1, ">");
-            Value v1 = create_string(_s1);
+            Value v1 = create_string(vm,_s1);
             free(_s1);
             return v1;
         case VAL_NATIVE:
-            return create_string("<native_function>");
+            return create_string(vm,"<native_function>");
         case VAL_STRUCT:
             ssize_t size = 12;
             size += strlen(args[0].as.struct_def->name);
@@ -250,7 +250,7 @@ static Value builtin_toString(VM* vm, Value* args, int arg_count) {
                     strcat(_s3, ", ");
             }
             strcat(_s3, "}");
-            Value v3 = create_string(_s3);
+            Value v3 = create_string(vm,_s3);
             free(_s3);
             return v3;
         case VAL_STRUCT_INSTANCE:
@@ -260,13 +260,13 @@ static Value builtin_toString(VM* vm, Value* args, int arg_count) {
             strcpy(_s4, "{Instance[");
             strcat(_s4, args[0].as.instance->struct_def->name);
             strcat(_s4, "]}");
-            Value v4 = create_string(_s4);
+            Value v4 = create_string(vm,_s4);
             free(_s4);
             return v4;
         case VAL_LIST:
-            return create_string("list");
+            return create_string(vm,"list");
         default:
-            return create_string("<?undefined type>");
+            return create_string(vm,"<?undefined type>");
     }
 }
 
@@ -275,7 +275,7 @@ static void register_builtin_variables(VM* vm) {
     
     // Use create_string to properly allocate the string
     //printf("DEBUG: About to create EOL\n");
-    Value eol_val = create_string("\n");
+    Value eol_val = create_string(vm,"\n");
     //printf("DEBUG: Created EOL, about to define global\n");
     vm_define_global(vm, "EOL", eol_val);
     //printf("DEBUG: EOL global defined\n");

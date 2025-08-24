@@ -1,0 +1,6 @@
+if(true){
+    print("I should be printed\n");
+}
+else{
+    print("I should not be printed\n");
+}

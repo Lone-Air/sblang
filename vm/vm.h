@@ -63,6 +63,14 @@ typedef struct {
     size_t capacity;        /* Capacity */
 } List;
 
+/* GC object header for tracking allocated objects */
+typedef struct GCObject {
+    struct GCObject* next;      /* Next object in linked list */
+    bool marked;                /* Mark flag for GC */
+    ValueType type;             /* Type of the object */
+    void* data;                 /* Pointer to the actual data */
+} GCObject;
+
 /* Value structure - supports multiple data types */
 struct Value {
     ValueType type;         /* Value type */
@@ -163,6 +171,12 @@ struct VM {
     /* Runtime status */
     bool running;                   /* Running flag */
     bool gc_enabled;                /* Garbage collection flag */
+    
+    /* Garbage collection */
+    GCObject* gc_objects;           /* Linked list of all allocated objects */
+    size_t gc_object_count;         /* Number of allocated objects */
+    size_t gc_threshold;            /* GC trigger threshold */
+    size_t gc_bytes_allocated;      /* Total bytes allocated */
 
     int end_pc;
 };
@@ -239,7 +253,7 @@ extern Value create_null();
 extern Value create_number(double num);
 
 /* Create string value */
-extern Value create_string(const char* str);
+extern Value create_string(VM* vm, const char* str);
 
 /* Create boolean value */
 extern Value create_bool(bool b);
@@ -251,7 +265,7 @@ extern Value create_function(Function* func);
 extern Value create_native(NativeFunction func);
 
 /* Create list */
-extern Value create_list();
+extern Value create_list(VM* vm);
 
 /* ========== Value Operation Functions ========== */
 
@@ -262,7 +276,10 @@ extern bool is_truthy(Value value);
 extern bool values_equal(Value a, Value b);
 
 /* Copy value (deep copy) */
-extern Value copy_value(Value value);
+extern Value copy_value(VM* vm, Value value);
+
+/* Free memory occupied by value (GC-aware) */
+extern void free_value_gc(VM* vm, Value value);
 
 /* Free memory occupied by value */
 extern void free_value(Value value);
@@ -291,5 +308,17 @@ extern void vm_gc_mark(VM* vm, Value value);
 
 /* Sweep unmarked objects (GC phase two) */
 extern void vm_gc_sweep(VM* vm);
+
+/* Allocate memory with GC tracking */
+extern void* gc_alloc(VM* vm, size_t size, ValueType type);
+
+/* Free GC object */
+extern void gc_free_object(VM* vm, GCObject* obj);
+
+/* Mark all reachable objects from roots */
+extern void vm_gc_mark_roots(VM* vm);
+
+/* Check if pointer is GC-managed */
+extern bool is_gc_managed(VM* vm, void* ptr);
 
 #endif

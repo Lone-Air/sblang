@@ -83,7 +83,7 @@ static bool add_variable(VariableTable* table, const char* name, Value value) {
     if (existing) {
         // Update existing variable value
         free_value(existing->value);
-        existing->value = copy_value(value);
+        existing->value = copy_value(nullptr, value);
         return true;
     }
 
@@ -99,7 +99,7 @@ static bool add_variable(VariableTable* table, const char* name, Value value) {
 
     /* Add new variable */
     table->vars[table->count].name = _s_strdup(name);
-    table->vars[table->count].value = copy_value(value);
+    table->vars[table->count].value = copy_value(nullptr, value);
     table->count++;
 
     return true;
@@ -159,6 +159,12 @@ VM* create_vm() {
     vm->error_message = nullptr;
     vm->running = false;
     vm->gc_enabled = true;
+    
+    /* Initialize garbage collection */
+    vm->gc_objects = nullptr;
+    vm->gc_object_count = 0;
+    vm->gc_threshold = 1024 * 1024; // 1MB default threshold
+    vm->gc_bytes_allocated = 0;
 
     if (vm) {
         /* Register built-in functions */
@@ -175,6 +181,25 @@ void destroy_vm(VM* vm) {
     if (!vm) return;
 
     vm->running = false;
+    
+    // If GC is enabled, let it handle cleanup, otherwise disable it
+    if (vm->gc_enabled) {
+        vm->gc_enabled = false; // Disable GC during cleanup
+    }
+    
+    // Free all GC tracked objects first (before normal cleanup)
+    GCObject* current = vm->gc_objects;
+    while (current) {
+        GCObject* next = current->next;
+        
+        // Don't free the actual data here - let free_value handle it
+        // Just free the GC object header
+        free(current);
+        current = next;
+    }
+    vm->gc_objects = nullptr;
+    vm->gc_object_count = 0;
+    vm->gc_bytes_allocated = 0;
 
     // Free dynamic stack and all values on it
     if (vm->stack) {
@@ -297,8 +322,6 @@ void destroy_vm(VM* vm) {
     vm->call_capacity = 0;
     vm->pc = 0;
     vm->last_error = VM_OK;
-    vm->running = false;
-    vm->gc_enabled = false;
 
     free(vm);
 }
@@ -371,10 +394,21 @@ Value create_number(double num) {
 /**
  * Create string value (copies the string)
  */
-Value create_string(const char* str) {
+Value create_string(VM* vm, const char* str) {
     Value val;
     val.type = VAL_STRING;
-    val.as.string = str ? _s_strdup(str) : nullptr;
+    
+    if (str && vm && vm->gc_enabled) {
+        // Use GC allocation for string
+        size_t len = strlen(str) + 1;
+        val.as.string = (char*)gc_alloc(vm, len, VAL_STRING);
+        if (val.as.string) {
+            strcpy(val.as.string, str);
+        }
+    } else {
+        val.as.string = str ? _s_strdup(str) : nullptr;
+    }
+    
     if (val.as.string) {
         //printf("DEBUG: create_string('%s') allocated at %p\n", str, val.as.string);
     }
@@ -414,10 +448,16 @@ Value create_native(NativeFunction func) {
 /**
  * Create empty list value
  */
-Value create_list() {
+Value create_list(VM* vm) {
     Value val;
     val.type = VAL_LIST;
-    val.as.list = (List*)malloc(sizeof(List));
+    
+    if (vm && vm->gc_enabled) {
+        val.as.list = (List*)gc_alloc(vm, sizeof(List), VAL_LIST);
+    } else {
+        val.as.list = (List*)malloc(sizeof(List));
+    }
+    
     if (val.as.list) {
         val.as.list->items = nullptr;
         val.as.list->count = 0;
@@ -458,7 +498,7 @@ bool values_equal(Value a, Value b) {
 /**
  * Create a deep copy of a value
  */
-Value copy_value(Value value) {
+Value copy_value(VM* vm, Value value) {
     Value result;
     result.type = value.type;
     
@@ -472,20 +512,37 @@ Value copy_value(Value value) {
             result.as.number = value.as.number;
             break;
         case VAL_STRING:
-            result.as.string = value.as.string ? _s_strdup(value.as.string) : nullptr;
+            if (value.as.string) {
+                if (vm && vm->gc_enabled) {
+                    // Use GC allocation
+                    size_t len = strlen(value.as.string) + 1;
+                    result.as.string = (char*)gc_alloc(vm, len, VAL_STRING);
+                    if (result.as.string) {
+                        strcpy(result.as.string, value.as.string);
+                    }
+                } else {
+                    result.as.string = _s_strdup(value.as.string);
+                }
+            } else {
+                result.as.string = nullptr;
+            }
             if (result.as.string) {
                 //printf("DEBUG: copy_value string '%s' from %p to %p\n", value.as.string, value.as.string, result.as.string);
             }
             break;
         case VAL_LIST:
             if (value.as.list) {
-                result.as.list = malloc(sizeof(List));
+                if (vm && vm->gc_enabled) {
+                    result.as.list = (List*)gc_alloc(vm, sizeof(List), VAL_LIST);
+                } else {
+                    result.as.list = malloc(sizeof(List));
+                }
                 result.as.list->capacity = value.as.list->capacity;
                 result.as.list->count = value.as.list->count;
                 if (value.as.list->items && value.as.list->count > 0) {
                     result.as.list->items = malloc(sizeof(Value) * value.as.list->capacity);
                     for (size_t i = 0; i < value.as.list->count; i++) {
-                        result.as.list->items[i] = copy_value(value.as.list->items[i]);
+                        result.as.list->items[i] = copy_value(vm, value.as.list->items[i]);
                     }
                 }
                 else {
@@ -501,10 +558,14 @@ Value copy_value(Value value) {
                 result.as.instance = nullptr;
             }
             else {
-                result.as.instance = (StructInstance*)malloc(sizeof(StructInstance));
+                if (vm && vm->gc_enabled) {
+                    result.as.instance = (StructInstance*)gc_alloc(vm, sizeof(StructInstance), VAL_STRUCT_INSTANCE);
+                } else {
+                    result.as.instance = (StructInstance*)malloc(sizeof(StructInstance));
+                }
                 result.as.instance->members = (Value*)malloc(sizeof(Value) * value.as.instance->struct_def->member_count);
                 for (int i = 0; i < value.as.instance->struct_def->member_count; i++) {
-                    result.as.instance->members[i] = copy_value(value.as.instance->members[i]);
+                    result.as.instance->members[i] = copy_value(vm, value.as.instance->members[i]);
                 }
 
                 /*
@@ -532,6 +593,65 @@ Value copy_value(Value value) {
     }
     
     return result;
+}
+
+/**
+ * Check if pointer is GC-managed
+ */
+bool is_gc_managed(VM* vm, void* ptr) {
+    if (!vm || !ptr) return false;
+    
+    GCObject* obj = vm->gc_objects;
+    while (obj) {
+        if (obj->data == ptr) return true;
+        obj = obj->next;
+    }
+    return false;
+}
+
+/**
+ * Free memory occupied by value (GC-aware version)
+ */
+void free_value_gc(VM* vm, Value value) {
+    if (!vm) {
+        free_value(value);
+        return;
+    }
+    
+    switch (value.type) {
+        case VAL_STRING:
+            if (value.as.string && !is_gc_managed(vm, value.as.string)) {
+                free(value.as.string);
+            }
+            break;
+        case VAL_LIST:
+            if (value.as.list && !is_gc_managed(vm, value.as.list)) {
+                if (value.as.list->items) {
+                    // Free all elements in the list
+                    for (size_t i = 0; i < value.as.list->count; i++) {
+                        free_value_gc(vm, value.as.list->items[i]);
+                    }
+                    free(value.as.list->items);
+                }
+                free(value.as.list);
+            }
+            break;
+        case VAL_STRUCT_INSTANCE:
+            if (value.as.instance && !is_gc_managed(vm, value.as.instance)) {
+                if (value.as.instance->members && value.as.instance->struct_def) {
+                    // Free all members of struct instance
+                    for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
+                        free_value_gc(vm, value.as.instance->members[i]);
+                    }
+                    free(value.as.instance->members);
+                }
+                free(value.as.instance);
+            }
+            break;
+        default:
+            // Other types don't allocate heap memory
+            break;
+    }
 }
 
 /**
@@ -699,12 +819,12 @@ bool vm_set_variable(VM* vm, const char* name, Value value) {
         Variable* var = find_variable(vm->locals, name);
         if (var) {
             free_value(var->value);
-            var->value = copy_value(value);
+            var->value = copy_value(vm, value);
             // Check for global
             Variable* var_g = find_variable(&vm->globals, name);
             if (var_g) { // Is global
                 free_value(var_g->value);
-                var_g->value = copy_value(value);
+                var_g->value = copy_value(vm, value);
             }
             return true;
         }
@@ -715,7 +835,7 @@ bool vm_set_variable(VM* vm, const char* name, Value value) {
     Variable* var = find_variable(&vm->globals, name);
     if (var) {
         free_value(var->value);
-        var->value = copy_value(value);
+        var->value = copy_value(vm, value);
         return true;
     }
 
@@ -1280,12 +1400,12 @@ VMError vm_execute_instruction(VM* vm) {
 
         case OP_PUSH_STR:
             // Push string constant
-            vm_push(vm, create_string(inst->operand.str_value));
+            vm_push(vm, create_string(vm, inst->operand.str_value));
             break;
 
         case OP_PUSH_IDENT:
             // Push identifier (as string)
-            vm_push(vm, create_string(inst->operand.str_value));
+            vm_push(vm, create_string(vm, inst->operand.str_value));
             break;
 
         case OP_PUSH_TRUE:
@@ -1334,7 +1454,7 @@ VMError vm_execute_instruction(VM* vm) {
                 if (result) {
                     strcpy(result, a.as.string);
                     strcat(result, b.as.string);
-                    Value str_val = create_string(result);
+                    Value str_val = create_string(vm, result);
                     free(result);
                     vm_push(vm, str_val);
                 }
@@ -1643,14 +1763,14 @@ VMError vm_execute_instruction(VM* vm) {
                 /*switch (var->type) {
                     case VAL_LIST:
                     case VAL_STRING: {
-                        vm_push(vm, copy_value(*var));
+                        vm_push(vm, copy_value(vm, *var));
                         break;
                     }
                     default: {
                         vm_push(vm, *var);
                     }
                 }*/
-                vm_push(vm, copy_value(*var));
+                vm_push(vm, copy_value(vm, *var));
             }
             break;
         }
@@ -1710,7 +1830,7 @@ VMError vm_execute_instruction(VM* vm) {
                 Value original = vm_pop(vm);
                 // Deep copy struct instances to avoid double-free when passed as function arguments
                 if (original.type == VAL_STRUCT_INSTANCE) {
-                    args[i] = copy_value(original);
+                    args[i] = copy_value(vm, original);
                 } else {
                     args[i] = original;
                 }
@@ -1947,7 +2067,7 @@ VMError vm_execute_instruction(VM* vm) {
                 return VM_UNDEFINED_MEMBER;
             }
 
-            vm_push(vm, copy_value(instance->members[member_idx]));
+            vm_push(vm, copy_value(vm, instance->members[member_idx]));
             //vm_push(vm, instance->members[member_idx]);
             // Don't free obj since it's a reference type
             break;
@@ -1987,7 +2107,7 @@ VMError vm_execute_instruction(VM* vm) {
             else {
                 // Update existing member value
                 free_value(instance->members[member_idx]);
-                instance->members[member_idx] = copy_value(value);
+                instance->members[member_idx] = copy_value(vm, value);
                 free_value(value);
                 //printf("--- DEBUG\n");
             }
@@ -1998,7 +2118,7 @@ VMError vm_execute_instruction(VM* vm) {
         case OP_LIST_NEW: {
             // Create new list
             int count = inst->operand.int_value;
-            Value list = create_list();
+            Value list = create_list(vm);
 
             if (count > 0 && list.as.list) {
                 list.as.list->items = (Value*)malloc(count * sizeof(Value));
@@ -2069,7 +2189,7 @@ VMError vm_execute_instruction(VM* vm) {
                 return VM_INDEX_OUT_OF_BOUNDS;
             }
 
-            vm_push(vm, copy_value(list.as.list->items[list.as.list->count - idx - 1]));
+            vm_push(vm, copy_value(vm, list.as.list->items[list.as.list->count - idx - 1]));
             break;
         }
 
@@ -2215,14 +2335,25 @@ bool vm_load_from_file(VM* vm, const char* filename) {
     return result;
 }
 
-/* ========== Garbage Collection Functions (to be implemented) ========== */
+/* ========== Garbage Collection Functions ========== */
 
 /**
  * Garbage collection (mark-and-sweep algorithm)
  */
 void vm_gc_collect(VM* vm) {
     if (!vm || !vm->gc_enabled) return;
-    // TODO: Implement complete garbage collection
+    
+    // Phase 1: Mark all reachable objects
+    vm_gc_mark_roots(vm);
+    
+    // Phase 2: Sweep unmarked objects
+    vm_gc_sweep(vm);
+    
+    // Update threshold for next GC
+    vm->gc_threshold = vm->gc_bytes_allocated * 2;
+    if (vm->gc_threshold < 1024 * 1024) {
+        vm->gc_threshold = 1024 * 1024; // Minimum 1MB
+    }
 }
 
 /**
@@ -2230,7 +2361,49 @@ void vm_gc_collect(VM* vm) {
  */
 void vm_gc_mark(VM* vm, Value value) {
     if (!vm) return;
-    // TODO: Implement marking logic
+    
+    // Find the GC object for this value and mark it
+    GCObject* obj = vm->gc_objects;
+    while (obj) {
+        bool should_mark = false;
+        
+        switch (value.type) {
+            case VAL_STRING:
+                if (obj->type == VAL_STRING && obj->data == value.as.string) {
+                    should_mark = true;
+                }
+                break;
+            case VAL_LIST:
+                if (obj->type == VAL_LIST && obj->data == value.as.list) {
+                    should_mark = true;
+                }
+                break;
+            case VAL_STRUCT_INSTANCE:
+                if (obj->type == VAL_STRUCT_INSTANCE && obj->data == value.as.instance) {
+                    should_mark = true;
+                }
+                break;
+            default:
+                break;
+        }
+        
+        if (should_mark && !obj->marked) {
+            obj->marked = true;
+            
+            // Recursively mark referenced objects
+            if (value.type == VAL_LIST && value.as.list) {
+                for (size_t i = 0; i < value.as.list->count; i++) {
+                    vm_gc_mark(vm, value.as.list->items[i]);
+                }
+            } else if (value.type == VAL_STRUCT_INSTANCE && value.as.instance) {
+                for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
+                    vm_gc_mark(vm, value.as.instance->members[i]);
+                }
+            }
+        }
+        
+        obj = obj->next;
+    }
 }
 
 /**
@@ -2238,5 +2411,164 @@ void vm_gc_mark(VM* vm, Value value) {
  */
 void vm_gc_sweep(VM* vm) {
     if (!vm) return;
-    // TODO: Implement sweeping logic
+    
+    GCObject** current = &vm->gc_objects;
+    
+    while (*current) {
+        if (!(*current)->marked) {
+            // Object is not marked, free it
+            GCObject* to_free = *current;
+            *current = to_free->next;
+            
+            // Free the actual data based on type
+            switch (to_free->type) {
+                case VAL_STRING:
+                    free(to_free->data);
+                    break;
+                case VAL_LIST: {
+                    List* list = (List*)to_free->data;
+                    if (list->items) {
+                        free(list->items);
+                    }
+                    free(list);
+                    break;
+                }
+                case VAL_STRUCT_INSTANCE: {
+                    StructInstance* instance = (StructInstance*)to_free->data;
+                    if (instance->members) {
+                        free(instance->members);
+                    }
+                    free(instance);
+                    break;
+                }
+                default:
+                    break;
+            }
+            
+            free(to_free);
+            vm->gc_object_count--;
+        } else {
+            // Object is marked, unmark it for next collection
+            (*current)->marked = false;
+            current = &(*current)->next;
+        }
+    }
+}
+
+/**
+ * Allocate memory with GC tracking
+ */
+void* gc_alloc(VM* vm, size_t size, ValueType type) {
+    if (!vm) return nullptr;
+    
+    // Check if we should trigger GC
+    if (vm->gc_enabled && vm->gc_bytes_allocated >= vm->gc_threshold) {
+        vm_gc_collect(vm);
+    }
+    
+    // Allocate GC object header
+    GCObject* obj = (GCObject*)malloc(sizeof(GCObject));
+    if (!obj) return nullptr;
+    
+    // Allocate the actual data
+    void* data = malloc(size);
+    if (!data) {
+        free(obj);
+        return nullptr;
+    }
+    
+    // Initialize GC object
+    obj->next = vm->gc_objects;
+    obj->marked = false;
+    obj->type = type;
+    obj->data = data;
+    
+    // Add to GC object list
+    vm->gc_objects = obj;
+    vm->gc_object_count++;
+    vm->gc_bytes_allocated += size + sizeof(GCObject);
+    
+    return data;
+}
+
+/**
+ * Free GC object manually
+ */
+void gc_free_object(VM* vm, GCObject* obj) {
+    if (!vm || !obj) return;
+    
+    // Remove from linked list
+    if (vm->gc_objects == obj) {
+        vm->gc_objects = obj->next;
+    } else {
+        GCObject* current = vm->gc_objects;
+        while (current && current->next != obj) {
+            current = current->next;
+        }
+        if (current) {
+            current->next = obj->next;
+        }
+    }
+    
+    // Free the data based on type
+    switch (obj->type) {
+        case VAL_STRING:
+            free(obj->data);
+            break;
+        case VAL_LIST: {
+            List* list = (List*)obj->data;
+            if (list->items) {
+                free(list->items);
+            }
+            free(list);
+            break;
+        }
+        case VAL_STRUCT_INSTANCE: {
+            StructInstance* instance = (StructInstance*)obj->data;
+            if (instance->members) {
+                free(instance->members);
+            }
+            free(instance);
+            break;
+        }
+        default:
+            free(obj->data);
+            break;
+    }
+    
+    free(obj);
+    vm->gc_object_count--;
+}
+
+/**
+ * Mark all reachable objects from roots
+ */
+void vm_gc_mark_roots(VM* vm) {
+    if (!vm) return;
+    
+    // Mark all objects on the operand stack
+    for (size_t i = 0; i < vm->stack_top; i++) {
+        vm_gc_mark(vm, vm->stack[i]);
+    }
+    
+    // Mark all global variables
+    for (size_t i = 0; i < vm->globals.count; i++) {
+        vm_gc_mark(vm, vm->globals.vars[i].value);
+    }
+    
+    // Mark all local variables if there are any
+    if (vm->locals) {
+        for (size_t i = 0; i < vm->locals->count; i++) {
+            vm_gc_mark(vm, vm->locals->vars[i].value);
+        }
+    }
+    
+    // Mark all call frame local variables
+    for (size_t frame = 0; frame < vm->call_depth; frame++) {
+        if (vm->call_stack[frame].locals) {
+            for (size_t i = 0; i < vm->call_stack[frame].local_count; i++) {
+                vm_gc_mark(vm, vm->call_stack[frame].locals[i]);
+            }
+        }
+    }
 }
