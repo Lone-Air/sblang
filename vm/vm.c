@@ -112,8 +112,11 @@ static bool add_variable(VariableTable* table, const char* name, Value value) {
  * Initialize all components and set default state
  */
 VM* create_vm() {
+    //printf("DEBUG: Starting create_vm\n");
     VM* vm = (VM*)malloc(sizeof(VM));
     if (!vm) return nullptr;
+
+    //printf("DEBUG: VM allocated, initializing fields\n");
 
     /* Initialize instruction-related fields */
     vm->instructions = nullptr;
@@ -372,6 +375,9 @@ Value create_string(const char* str) {
     Value val;
     val.type = VAL_STRING;
     val.as.string = str ? _s_strdup(str) : nullptr;
+    if (val.as.string) {
+        //printf("DEBUG: create_string('%s') allocated at %p\n", str, val.as.string);
+    }
     return val;
 }
 
@@ -467,6 +473,9 @@ Value copy_value(Value value) {
             break;
         case VAL_STRING:
             result.as.string = value.as.string ? _s_strdup(value.as.string) : nullptr;
+            if (result.as.string) {
+                //printf("DEBUG: copy_value string '%s' from %p to %p\n", value.as.string, value.as.string, result.as.string);
+            }
             break;
         case VAL_LIST:
             if (value.as.list) {
@@ -532,6 +541,7 @@ void free_value(Value value) {
     switch (value.type) {
         case VAL_STRING:
             if (value.as.string) {
+                //printf("DEBUG: Freeing string: '%s' at %p\n", value.as.string, value.as.string);
                 free(value.as.string);
                 value.as.string = nullptr;
             }
@@ -1611,6 +1621,7 @@ VMError vm_execute_instruction(VM* vm) {
             break;
         }
 
+        case OP_LOAD_GLOBAL:
         case OP_LOAD_VAR: {
             // Load variable value onto stack
             const char* name = inst->operand.str_value;
@@ -1629,7 +1640,17 @@ VMError vm_execute_instruction(VM* vm) {
             else {
                 // Push the value directly for reference types like structs
                 // For function arguments, copy_value will be called separately
-                vm_push(vm, *var);
+                /*switch (var->type) {
+                    case VAL_LIST:
+                    case VAL_STRING: {
+                        vm_push(vm, copy_value(*var));
+                        break;
+                    }
+                    default: {
+                        vm_push(vm, *var);
+                    }
+                }*/
+                vm_push(vm, copy_value(*var));
             }
             break;
         }

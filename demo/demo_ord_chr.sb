@@ -1,0 +1,3 @@
+print("chr(120): " + chr(120) + EOL);
+print("ord('x'): " + toString(ord('x')) + EOL);
+print("--- END" + EOL);

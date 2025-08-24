@@ -204,10 +204,9 @@ static bool file_exists(const char* filename) {
     return false;
 }
 
-/* Check if file is bytecode based on extension */
+/* Check if file is bytecode based on magic value */
 static bool is_bytecode_file(const char* filename) {
-    size_t len = strlen(filename);
-    return len > 4 && strcmp(filename + len - 4, ".sbc") == 0;
+    return is_valid_bytecode_file(filename);
 }
 
 /* Get output filename for bytecode */
@@ -422,6 +421,7 @@ static bool execute_file(const char* input_file) {
     */
     
     /* Create VM */
+    //printf("DEBUG: About to create VM\n");
     VM* vm = create_vm();
     if (!vm) {
         fprintf(stderr, "Error: Failed to create VM\n");

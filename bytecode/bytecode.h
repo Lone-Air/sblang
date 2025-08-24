@@ -12,6 +12,9 @@
 #include "../dynarray/dynarray.h"
 #include <stdint.h>
 
+/* Bytecode file magic value */
+#define SBL_BYTECODE_MAGIC 0x53424C42  /* "SBLB" in ASCII */
+
 /* Dynamic array structure for storing variable-length data */
 typedef struct {
     void** items;       /* Array element pointers */
@@ -216,5 +219,8 @@ extern bool save_bytecode(BytecodeGenerator* gen, const char* filename);
 
 /* Load bytecode from file */
 extern BytecodeGenerator* load_bytecode(const char* filename);
+
+/* Check if a file is a valid bytecode file by checking magic value */
+extern bool is_valid_bytecode_file(const char* filename);
 
 #endif

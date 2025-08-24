@@ -11,6 +11,12 @@
 #include <string.h>
 #include <stdlib.h>
 
+static char* c2s(char c) {
+    char* s = calloc(2, sizeof(char));
+    *s = c;
+    return s;
+}
+
 /* Type transferation */
 char* double_to_string(double value) {
     // Temporary buffer
@@ -107,6 +113,46 @@ static Value builtin_len(VM* vm, Value* args, int arg_count) {
         default:
             vm_error(vm, VM_TYPE_ERROR, "len() expects a string or list");
             return create_null();
+    }
+}
+
+/* Built-in ord function */
+static Value builtin_ord(VM* vm, Value* args, int arg_count) {
+    if (arg_count != 1) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "ord() expects exactly 1 argument");
+        return create_null();
+    }
+
+    if (args[0].type == VAL_STRING) {
+        if (strlen(args[0].as.string) != 1) {
+            vm_error(vm, VM_TYPE_ERROR, "ord() expects single character, but string of length %d found", strlen(args[0].as.string));
+            return create_null();
+        }
+        int result = (int)args[0].as.string[0];
+        return create_number(result);
+    }
+    else {
+        vm_error(vm, VM_TYPE_ERROR, "ord() expects a string");
+        return create_null();
+    }
+}
+
+/* Built-in chr function */
+static Value builtin_chr(VM* vm, Value* args, int arg_count) {
+    if (arg_count != 1) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "chr() expects exactly 1 argument");
+        return create_null();
+    }
+
+    if (args[0].type == VAL_NUMBER) {
+        char result_str[2];
+        result_str[0] = (char)args[0].as.number;
+        result_str[1] = '\0';
+        return create_string(result_str);
+    }
+    else {
+        vm_error(vm, VM_TYPE_ERROR, "chr() expects a number");
+        return create_null();
     }
 }
 
@@ -224,13 +270,35 @@ static Value builtin_toString(VM* vm, Value* args, int arg_count) {
     }
 }
 
+static void register_builtin_variables(VM* vm) {
+    //printf("DEBUG: Starting register_builtin_variables\n");
+    
+    // Use create_string to properly allocate the string
+    //printf("DEBUG: About to create EOL\n");
+    Value eol_val = create_string("\n");
+    //printf("DEBUG: Created EOL, about to define global\n");
+    vm_define_global(vm, "EOL", eol_val);
+    //printf("DEBUG: EOL global defined\n");
+    
+    vm_define_global(vm, "true", create_bool(true));
+    vm_define_global(vm, "false", create_bool(false));
+    
+    //printf("DEBUG: Finished register_builtin_variables\n");
+}
+
 /* Register built-in functions */
 void register_builtin_functions(VM* vm) {
     vm_register_native(vm, "print", builtin_print);
     vm_register_native(vm, "input", builtin_input);
     vm_register_native(vm, "len", builtin_len);
+
+    vm_register_native(vm, "ord", builtin_ord);
+    vm_register_native(vm, "chr", builtin_chr);
+
     vm_register_native(vm, "type", builtin_type);
     vm_register_native(vm, "toString", builtin_toString);
     vm_register_native(vm, "exit", builtin_exit);
+
+    register_builtin_variables(vm);
 }
 

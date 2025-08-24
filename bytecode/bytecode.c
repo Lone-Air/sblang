@@ -823,6 +823,13 @@ bool save_bytecode(BytecodeGenerator* gen, const char* filename) {
     FILE* file = fopen(filename, "wb");
     if (!file) return false;
     
+    // Write magic value at the beginning
+    uint32_t magic = SBL_BYTECODE_MAGIC;
+    if (fwrite(&magic, sizeof(uint32_t), 1, file) != 1) {
+        fclose(file);
+        return false;
+    }
+    
     // Save instructions
     size_t count = gen->instructions->count;
     fwrite(&count, sizeof(size_t), 1, file);
@@ -924,6 +931,13 @@ BytecodeGenerator* load_bytecode(const char* filename) {
     
     FILE* file = fopen(filename, "rb");
     if (!file) return nullptr;
+    
+    // Verify magic value
+    uint32_t magic;
+    if (fread(&magic, sizeof(uint32_t), 1, file) != 1 || magic != SBL_BYTECODE_MAGIC) {
+        fclose(file);
+        return nullptr;
+    }
     
     BytecodeGenerator* gen = create_bytecode_generator();
     if (!gen) {
@@ -1094,4 +1108,17 @@ BytecodeGenerator* load_bytecode(const char* filename) {
 
     fclose(file);
     return gen;
+}
+
+bool is_valid_bytecode_file(const char* filename) {
+    if (!filename) return false;
+    
+    FILE* file = fopen(filename, "rb");
+    if (!file) return false;
+    
+    uint32_t magic;
+    bool is_valid = (fread(&magic, sizeof(uint32_t), 1, file) == 1 && magic == SBL_BYTECODE_MAGIC);
+    
+    fclose(file);
+    return is_valid;
 }
