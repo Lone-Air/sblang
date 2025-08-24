@@ -1760,17 +1760,18 @@ VMError vm_execute_instruction(VM* vm) {
             else {
                 // Push the value directly for reference types like structs
                 // For function arguments, copy_value will be called separately
-                /*switch (var->type) {
-                    case VAL_LIST:
-                    case VAL_STRING: {
-                        vm_push(vm, copy_value(vm, *var));
+                switch (var->type) {
+                    case VAL_STRUCT_INSTANCE: {
+                        // For struct instances, push reference to allow member modification
+                        vm_push(vm, *var);
                         break;
                     }
                     default: {
-                        vm_push(vm, *var);
+                        // For other types, make a copy
+                        vm_push(vm, copy_value(vm, *var));
+                        break;
                     }
-                }*/
-                vm_push(vm, copy_value(vm, *var));
+                }
             }
             break;
         }
@@ -2010,11 +2011,12 @@ VMError vm_execute_instruction(VM* vm) {
 
             // If definition not found, create new struct definition
             if (!struct_def) {
-                struct_def = (Struct*)malloc(sizeof(Struct));
-                struct_def->name = _s_strdup(struct_name);
-                struct_def->members = nullptr;
-                struct_def->member_count = 0;
+                vm_error(vm, VM_UNDEFINED_FUNCTION, "Struct '%s' not defined", struct_name);
+                return VM_UNDEFINED_FUNCTION;
             }
+
+            // Debug: print struct info
+            //printf("DEBUG: Creating instance of struct '%s' with %zu members\n", struct_name, struct_def->member_count);
 
             // Create struct instance
             StructInstance* instance = (StructInstance*)malloc(sizeof(StructInstance));
@@ -2043,6 +2045,8 @@ VMError vm_execute_instruction(VM* vm) {
             Value obj = vm_pop(vm);
             const char* member_name = inst->operand.str_value;
 
+            //printf("DEBUG: Accessing member '%s'\n", member_name);
+
             if (obj.type != VAL_STRUCT_INSTANCE) {
                 vm_error(vm, VM_NOT_A_STRUCT, "Cannot access member of non-struct");
                 free_value(obj);
@@ -2067,6 +2071,7 @@ VMError vm_execute_instruction(VM* vm) {
                 return VM_UNDEFINED_MEMBER;
             }
 
+            //printf("DEBUG: Found member[%zu], type=%d\n", member_idx, instance->members[member_idx].type);
             vm_push(vm, copy_value(vm, instance->members[member_idx]));
             //vm_push(vm, instance->members[member_idx]);
             // Don't free obj since it's a reference type
@@ -2079,6 +2084,12 @@ VMError vm_execute_instruction(VM* vm) {
             Value value = vm_pop(vm);
             const char* member_name = inst->operand.str_value;
 
+            //printf("DEBUG: Storing member '%s'\n", member_name);
+            //printf("DEBUG: Value type=%d\n", value.type);
+            //if (value.type == VAL_STRING) {
+            //    printf("DEBUG: Value string='%s'\n", value.as.string ? value.as.string : "null");
+            //}
+
             if (obj.type != VAL_STRUCT_INSTANCE) {
                 vm_error(vm, VM_NOT_A_STRUCT, "Cannot store member of non-struct");
                 free_value(obj);
@@ -2088,6 +2099,11 @@ VMError vm_execute_instruction(VM* vm) {
 
             StructInstance* instance = obj.as.instance;
             size_t member_idx = (size_t)-1;
+
+            //printf("DEBUG: Struct has %zu members\n", instance->struct_def->member_count);
+            //for (size_t i = 0; i < instance->struct_def->member_count; i++) {
+            //    printf("DEBUG: Member %zu: '%s'\n", i, instance->struct_def->members[i]);
+            //}
 
             // Find member index
             for (size_t i = 0; i < instance->struct_def->member_count; i++) {
@@ -2106,8 +2122,10 @@ VMError vm_execute_instruction(VM* vm) {
             }
             else {
                 // Update existing member value
+                //printf("DEBUG: Setting member[%zu] to value\n", member_idx);
                 free_value(instance->members[member_idx]);
                 instance->members[member_idx] = copy_value(vm, value);
+                //printf("DEBUG: After copy, member[%zu] type=%d\n", member_idx, instance->members[member_idx].type);
                 free_value(value);
                 //printf("--- DEBUG\n");
             }
