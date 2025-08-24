@@ -8,3 +8,5 @@ massif*
 cmake*
 lib/
 .idea/
+*.sbc
+CLAUDE.md

@@ -414,6 +414,12 @@ static bool execute_file(const char* input_file) {
         free(source);
         needs_cleanup = true;
     }
+
+    /*
+    printf("--- DEBUG: Bytecode\n");
+    print_bytecode(gen);
+    printf("--- END DEBUG\n");
+    */
     
     /* Create VM */
     VM* vm = create_vm();

@@ -823,6 +823,7 @@ bool save_bytecode(BytecodeGenerator* gen, const char* filename) {
     FILE* file = fopen(filename, "wb");
     if (!file) return false;
     
+    // Save instructions
     size_t count = gen->instructions->count;
     fwrite(&count, sizeof(size_t), 1, file);
     
@@ -865,6 +866,55 @@ bool save_bytecode(BytecodeGenerator* gen, const char* filename) {
         }
     }
     
+    // Save functions metadata
+    count = gen->functions->count;
+    fwrite(&count, sizeof(size_t), 1, file);
+    for (size_t i = 0; i < count; i++) {
+        FunctionInfo* func = (FunctionInfo*)dynarray_get(gen->functions, i);
+        if (func) {
+            size_t len = strlen(func->name) + 1;
+            fwrite(&len, sizeof(size_t), 1, file);
+            fwrite(func->name, 1, len, file);
+            fwrite(&func->start_addr, sizeof(size_t), 1, file);
+            fwrite(&func->param_count, sizeof(size_t), 1, file);
+        }
+    }
+    
+    // Save structs metadata
+    count = gen->structs->count;
+    fwrite(&count, sizeof(size_t), 1, file);
+    for (size_t i = 0; i < count; i++) {
+        StructInfo* st = (StructInfo*)dynarray_get(gen->structs, i);
+        if (st) {
+            size_t len = strlen(st->name) + 1;
+            fwrite(&len, sizeof(size_t), 1, file);
+            fwrite(st->name, 1, len, file);
+            
+            size_t member_count = st->members->count;
+            fwrite(&member_count, sizeof(size_t), 1, file);
+            for (size_t j = 0; j < member_count; j++) {
+                char* member = (char*)dynarray_get(st->members, j);
+                if (member) {
+                    len = strlen(member) + 1;
+                    fwrite(&len, sizeof(size_t), 1, file);
+                    fwrite(member, 1, len, file);
+                }
+            }
+        }
+    }
+    
+    // Save globals metadata
+    count = gen->globals->count;
+    fwrite(&count, sizeof(size_t), 1, file);
+    for (size_t i = 0; i < count; i++) {
+        char* global = (char*)dynarray_get(gen->globals, i);
+        if (global) {
+            size_t len = strlen(global) + 1;
+            fwrite(&len, sizeof(size_t), 1, file);
+            fwrite(global, 1, len, file);
+        }
+    }
+    
     fclose(file);
     return true;
 }
@@ -881,6 +931,7 @@ BytecodeGenerator* load_bytecode(const char* filename) {
         return nullptr;
     }
     
+    // Load instructions
     size_t count;
     if (fread(&count, sizeof(size_t), 1, file) != 1) {
         destroy_bytecode_generator(gen);
@@ -934,7 +985,113 @@ BytecodeGenerator* load_bytecode(const char* filename) {
         dynarray_push(gen->instructions, inst);
         gen->current_addr++;
     }
+
+    // Load functions metadata
+    if (fread(&count, sizeof(size_t), 1, file) == 1) {
+        for (size_t i = 0; i < count; i++) {
+            size_t len;
+            if (fread(&len, sizeof(size_t), 1, file) != 1) break;
+            
+            FunctionInfo* func = (FunctionInfo*)malloc(sizeof(FunctionInfo));
+            if (!func) break;
+            
+            func->name = (char*)malloc(len);
+            if (fread(func->name, 1, len, file) != len) {
+                free(func->name);
+                free(func);
+                break;
+            }
+            
+            if (fread(&func->start_addr, sizeof(size_t), 1, file) != 1 ||
+                fread(&func->param_count, sizeof(size_t), 1, file) != 1) {
+                free(func->name);
+                free(func);
+                break;
+            }
+            
+            dynarray_push(gen->functions, func);
+        }
+    }
     
+    // Load structs metadata
+    if (fread(&count, sizeof(size_t), 1, file) == 1) {
+        for (size_t i = 0; i < count; i++) {
+            size_t len;
+            if (fread(&len, sizeof(size_t), 1, file) != 1) break;
+            
+            StructInfo* st = (StructInfo*)malloc(sizeof(StructInfo));
+            if (!st) break;
+            
+            st->name = (char*)malloc(len);
+            if (fread(st->name, 1, len, file) != len) {
+                free(st->name);
+                free(st);
+                break;
+            }
+            
+            st->members = create_dynarray();
+            if (!st->members) {
+                free(st->name);
+                free(st);
+                break;
+            }
+            
+            size_t member_count;
+            if (fread(&member_count, sizeof(size_t), 1, file) != 1) {
+                destroy_dynarray(st->members);
+                free(st->name);
+                free(st);
+                break;
+            }
+            
+            bool member_failed = false;
+            for (size_t j = 0; j < member_count; j++) {
+                if (fread(&len, sizeof(size_t), 1, file) != 1) {
+                    member_failed = true;
+                    break;
+                }
+                
+                char* member = (char*)malloc(len);
+                if (!member || fread(member, 1, len, file) != len) {
+                    if (member) free(member);
+                    member_failed = true;
+                    break;
+                }
+                
+                dynarray_push(st->members, member);
+            }
+            
+            if (member_failed) {
+                for (size_t k = 0; k < st->members->count; k++) {
+                    char* member = (char*)dynarray_get(st->members, k);
+                    if (member) free(member);
+                }
+                destroy_dynarray(st->members);
+                free(st->name);
+                free(st);
+                break;
+            }
+            
+            dynarray_push(gen->structs, st);
+        }
+    }
+    
+    // Load globals metadata
+    if (fread(&count, sizeof(size_t), 1, file) == 1) {
+        for (size_t i = 0; i < count; i++) {
+            size_t len;
+            if (fread(&len, sizeof(size_t), 1, file) != 1) break;
+            
+            char* global = (char*)malloc(len);
+            if (!global || fread(global, 1, len, file) != len) {
+                if (global) free(global);
+                break;
+            }
+            
+            dynarray_push(gen->globals, global);
+        }
+    }
+
     fclose(file);
     return gen;
 }
