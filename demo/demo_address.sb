@@ -1,0 +1,4 @@
+a = "Test";
+
+print("Address: ", address(a), EOL);
+print("Address: ", address(a), EOL);

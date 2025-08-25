@@ -43,8 +43,9 @@ static Value builtin_print(VM* vm, Value* args, int arg_count) {
             case VAL_NUMBER:
                 /* Check if it's an integer */
                 double num = args[i].as.number;
-                if (num == (int)num) {
-                    printf("%d", (int)num);
+                //printf("--- PRINT DEBUG: %d, %lf, %lld\n", num == (long long int)num, num, (long long int)num);
+                if (num == (long long int)num) {
+                    printf("%lld", (long long int)num);
                 } else {
                     printf("%.6g", num);
                 }
@@ -187,6 +188,16 @@ static Value builtin_type(VM* vm, Value* args, int arg_count) {
     }
 }
 
+/* Built-in address function */
+static Value builtin_address(VM* vm, Value* args, int arg_count) {
+    if (arg_count != 1) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "address() expects exactly 1 argument");
+        return create_null();
+    }
+
+    return create_number((uintptr_t)&args[0].as);
+}
+
 /* Built-in exit function */
 static Value builtin_exit(VM* vm, Value* args, int arg_count) {
     int exit_code = 0;
@@ -296,6 +307,7 @@ void register_builtin_functions(VM* vm) {
     vm_register_native(vm, "chr", builtin_chr);
 
     vm_register_native(vm, "type", builtin_type);
+    vm_register_native(vm, "address", builtin_address);
     vm_register_native(vm, "toString", builtin_toString);
     vm_register_native(vm, "exit", builtin_exit);
 

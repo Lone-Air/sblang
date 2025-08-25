@@ -38,6 +38,9 @@
 
 /* ========== Variable Table Management Functions ========== */
 
+/* Forward declaration */
+static void free_variable_table_gc(VM* vm, VariableTable* table);
+
 /* Initialize variable table */
 static void init_variable_table(VariableTable* table) {
     table->vars = nullptr;
@@ -47,12 +50,21 @@ static void init_variable_table(VariableTable* table) {
 
 /* Free variable table and all its variables */
 static void free_variable_table(VariableTable* table) {
+    free_variable_table_gc(nullptr, table);
+}
+
+/* Free variable table and all its variables (GC-aware version) */
+static void free_variable_table_gc(VM* vm, VariableTable* table) {
     if (!table) return;
 
     /* Free each variable's name and value */
     for (size_t i = 0; i < table->count; i++) {
         if (table->vars[i].name) free(table->vars[i].name);
-        free_value(table->vars[i].value);
+        if (vm) {
+            free_value_gc(vm, table->vars[i].value);
+        } else {
+            free_value(table->vars[i].value);
+        }
     }
 
     if (table->vars) free(table->vars);
@@ -75,15 +87,19 @@ static Variable* find_variable(VariableTable* table, const char* name) {
 }
 
 /* Add or update variable in variable table */
-static bool add_variable(VariableTable* table, const char* name, Value value) {
+static bool add_variable(VM* vm, VariableTable* table, const char* name, Value value) {
     if (!table || !name) return false;
 
     /* Check if variable already exists */
     Variable* existing = find_variable(table, name);
     if (existing) {
         // Update existing variable value
-        free_value(existing->value);
-        existing->value = copy_value(nullptr, value);
+        if (vm) {
+            free_value_gc(vm, existing->value);
+        } else {
+            free_value(existing->value);
+        }
+        existing->value = copy_value(vm, value);
         return true;
     }
 
@@ -99,7 +115,7 @@ static bool add_variable(VariableTable* table, const char* name, Value value) {
 
     /* Add new variable */
     table->vars[table->count].name = _s_strdup(name);
-    table->vars[table->count].value = copy_value(nullptr, value);
+    table->vars[table->count].value = copy_value(vm, value);
     table->count++;
 
     return true;
@@ -182,29 +198,13 @@ void destroy_vm(VM* vm) {
 
     vm->running = false;
     
-    // If GC is enabled, let it handle cleanup, otherwise disable it
-    if (vm->gc_enabled) {
-        vm->gc_enabled = false; // Disable GC during cleanup
-    }
+    // Disable GC during cleanup to prevent interference
+    vm->gc_enabled = false;
     
-    // Free all GC tracked objects first (before normal cleanup)
-    GCObject* current = vm->gc_objects;
-    while (current) {
-        GCObject* next = current->next;
-        
-        // Don't free the actual data here - let free_value handle it
-        // Just free the GC object header
-        free(current);
-        current = next;
-    }
-    vm->gc_objects = nullptr;
-    vm->gc_object_count = 0;
-    vm->gc_bytes_allocated = 0;
-
-    // Free dynamic stack and all values on it
+    // Free dynamic stack and all values on it with GC awareness
     if (vm->stack) {
         for (size_t i = 0; i < vm->stack_top; i++) {
-            free_value(vm->stack[i]);
+            free_value_gc(vm, vm->stack[i]);
         }
         free(vm->stack);
         vm->stack = nullptr;
@@ -216,15 +216,53 @@ void destroy_vm(VM* vm) {
         vm->call_stack = nullptr;
     }
 
-    // Free global variable table
-    free_variable_table(&vm->globals);
-
-    // Free local variable table
+    // Free global and local variable tables with GC awareness
+    free_variable_table_gc(vm, &vm->globals);
     if (vm->locals) {
-        free_variable_table(vm->locals);
+        free_variable_table_gc(vm, vm->locals);
         free(vm->locals);
         vm->locals = nullptr;
     }
+
+    // Now clean up any remaining GC objects that weren't freed by above operations
+    GCObject* current = vm->gc_objects;
+    while (current) {
+        GCObject* next = current->next;
+        
+        // Only free if not already marked as freed (data != nullptr)
+        if (current->data) {
+            switch (current->type) {
+                case VAL_STRING:
+                    free(current->data);
+                    break;
+                case VAL_LIST: {
+                    List* list = (List*)current->data;
+                    if (list->items) {
+                        free(list->items);
+                    }
+                    free(list);
+                    break;
+                }
+                case VAL_STRUCT_INSTANCE: {
+                    StructInstance* instance = (StructInstance*)current->data;
+                    if (instance->members) {
+                        free(instance->members);
+                    }
+                    free(instance);
+                    break;
+                }
+                default:
+                    free(current->data);
+                    break;
+            }
+        }
+        
+        free(current);
+        current = next;
+    }
+    vm->gc_objects = nullptr;
+    vm->gc_object_count = 0;
+    vm->gc_bytes_allocated = 0;
 
     // Free loaded shared libraries
     if (vm->loaded_libs) {
@@ -596,6 +634,54 @@ Value copy_value(VM* vm, Value value) {
 }
 
 /**
+ * Check if pointer is GC-managed and remove it from GC tracking if found
+ * Returns true if the object was found and removed, false otherwise
+ */
+static bool remove_from_gc_if_managed(VM* vm, void* ptr) {
+    if (!vm || !ptr) return false;
+    
+    GCObject* prev = nullptr;
+    GCObject* current = vm->gc_objects;
+    
+    while (current) {
+        if (current->data == ptr) {
+            // Remove from linked list
+            if (prev) {
+                prev->next = current->next;
+            } else {
+                vm->gc_objects = current->next;
+            }
+            
+            // Free the GC object header but not the data (caller will handle data)
+            free(current);
+            vm->gc_object_count--;
+            return true;
+        }
+        prev = current;
+        current = current->next;
+    }
+    return false;
+}
+
+/**
+ * Mark object as freed by nulling its data pointer in GC tracking
+ * This prevents double-free while keeping the GC object in the list for cleanup
+ */
+static bool mark_gc_object_as_freed(VM* vm, void* ptr) {
+    if (!vm || !ptr) return false;
+    
+    GCObject* current = vm->gc_objects;
+    while (current) {
+        if (current->data == ptr) {
+            current->data = nullptr;  // Mark as already freed
+            return true;
+        }
+        current = current->next;
+    }
+    return false;
+}
+
+/**
  * Check if pointer is GC-managed
  */
 bool is_gc_managed(VM* vm, void* ptr) {
@@ -611,6 +697,7 @@ bool is_gc_managed(VM* vm, void* ptr) {
 
 /**
  * Free memory occupied by value (GC-aware version)
+ * This function properly handles GC managed objects
  */
 void free_value_gc(VM* vm, Value value) {
     if (!vm) {
@@ -620,14 +707,26 @@ void free_value_gc(VM* vm, Value value) {
     
     switch (value.type) {
         case VAL_STRING:
-            if (value.as.string && !is_gc_managed(vm, value.as.string)) {
+            // Mark as freed in GC tracking and free the string
+            if (value.as.string && mark_gc_object_as_freed(vm, value.as.string)) {
+                free(value.as.string);
+            } else if (value.as.string) {
+                // Not GC managed, free directly
                 free(value.as.string);
             }
             break;
         case VAL_LIST:
-            if (value.as.list && !is_gc_managed(vm, value.as.list)) {
+            if (value.as.list && mark_gc_object_as_freed(vm, value.as.list)) {
                 if (value.as.list->items) {
                     // Free all elements in the list
+                    for (size_t i = 0; i < value.as.list->count; i++) {
+                        free_value_gc(vm, value.as.list->items[i]);
+                    }
+                    free(value.as.list->items);
+                }
+                free(value.as.list);
+            } else if (value.as.list) {
+                if (value.as.list->items) {
                     for (size_t i = 0; i < value.as.list->count; i++) {
                         free_value_gc(vm, value.as.list->items[i]);
                     }
@@ -637,9 +736,17 @@ void free_value_gc(VM* vm, Value value) {
             }
             break;
         case VAL_STRUCT_INSTANCE:
-            if (value.as.instance && !is_gc_managed(vm, value.as.instance)) {
+            if (value.as.instance && mark_gc_object_as_freed(vm, value.as.instance)) {
                 if (value.as.instance->members && value.as.instance->struct_def) {
                     // Free all members of struct instance
+                    for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
+                        free_value_gc(vm, value.as.instance->members[i]);
+                    }
+                    free(value.as.instance->members);
+                }
+                free(value.as.instance);
+            } else if (value.as.instance) {
+                if (value.as.instance->members && value.as.instance->struct_def) {
                     for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
                         free_value_gc(vm, value.as.instance->members[i]);
                     }
@@ -818,28 +925,40 @@ bool vm_set_variable(VM* vm, const char* name, Value value) {
     if (vm->locals) {
         Variable* var = find_variable(vm->locals, name);
         if (var) {
-            free_value(var->value);
+            if (vm) {
+                free_value_gc(vm, var->value);
+            } else {
+                free_value(var->value);
+            }
             var->value = copy_value(vm, value);
             // Check for global
             Variable* var_g = find_variable(&vm->globals, name);
             if (var_g) { // Is global
-                free_value(var_g->value);
+                if (vm) {
+                    free_value_gc(vm, var_g->value);
+                } else {
+                    free_value(var_g->value);
+                }
                 var_g->value = copy_value(vm, value);
             }
             return true;
         }
-        return add_variable(vm->locals, name, value);
+        return add_variable(vm, vm->locals, name, value);
     }
 
     // Then try to set global variable
     Variable* var = find_variable(&vm->globals, name);
     if (var) {
-        free_value(var->value);
+        if (vm) {
+            free_value_gc(vm, var->value);
+        } else {
+            free_value(var->value);
+        }
         var->value = copy_value(vm, value);
         return true;
     }
 
-    return add_variable(&vm->globals, name, value);
+    return add_variable(vm, &vm->globals, name, value);
 }
 
 /**
@@ -847,7 +966,7 @@ bool vm_set_variable(VM* vm, const char* name, Value value) {
  */
 bool vm_define_global(VM* vm, const char* name, Value value) {
     if (!vm || !name) return false;
-    return add_variable(&vm->globals, name, value);
+    return add_variable(vm, &vm->globals, name, value);
 }
 
 /**
@@ -1465,8 +1584,8 @@ VMError vm_execute_instruction(VM* vm) {
                 return VM_TYPE_ERROR;
             }
 
-            free_value(a);
-            free_value(b);
+            free_value_gc(vm, a);
+            free_value_gc(vm, b);
             break;
         }
 
@@ -1639,8 +1758,8 @@ VMError vm_execute_instruction(VM* vm) {
             Value a = vm_pop(vm);
 
             vm_push(vm, create_bool(is_truthy(a) && is_truthy(b)));
-            free_value(a);
-            free_value(b);
+            free_value_gc(vm, a);
+            free_value_gc(vm, b);
             break;
         }
 
@@ -1650,8 +1769,8 @@ VMError vm_execute_instruction(VM* vm) {
             Value a = vm_pop(vm);
 
             vm_push(vm, create_bool(is_truthy(a) || is_truthy(b)));
-            free_value(a);
-            free_value(b);
+            free_value_gc(vm, a);
+            free_value_gc(vm, b);
             break;
         }
 
@@ -1669,8 +1788,8 @@ VMError vm_execute_instruction(VM* vm) {
             Value a = vm_pop(vm);
 
             vm_push(vm, create_bool(values_equal(a, b)));
-            free_value(a);
-            free_value(b);
+            free_value_gc(vm, a);
+            free_value_gc(vm, b);
             break;
         }
 
@@ -1680,8 +1799,8 @@ VMError vm_execute_instruction(VM* vm) {
             Value a = vm_pop(vm);
 
             vm_push(vm, create_bool(!values_equal(a, b)));
-            free_value(a);
-            free_value(b);
+            free_value_gc(vm, a);
+            free_value_gc(vm, b);
             break;
         }
 
@@ -1783,15 +1902,15 @@ VMError vm_execute_instruction(VM* vm) {
             const char* name = inst->operand.str_value;
 
             if (inst->opcode == OP_STORE_GLOBAL)
-                add_variable(&vm->globals, name, value);
+                add_variable(vm, &vm->globals, name, value);
 
             if (!vm_set_variable(vm, name, value)) {
                 vm_error(vm, VM_RUNTIME_ERROR, "Failed to store variable '%s'", name);
-                free_value(value);
+                free_value_gc(vm, value);
                 return VM_RUNTIME_ERROR;
             }
             // Free the original value since vm_set_variable makes a copy
-            free_value(value);
+            free_value_gc(vm, value);
             break;
         }
 
@@ -1807,7 +1926,7 @@ VMError vm_execute_instruction(VM* vm) {
             if (!is_truthy(cond)) {
                 vm->pc = inst->operand.int_value;
             }
-            free_value(cond);
+            free_value_gc(vm, cond);
             break;
         }
 
@@ -1817,7 +1936,7 @@ VMError vm_execute_instruction(VM* vm) {
             if (is_truthy(cond)) {
                 vm->pc = inst->operand.int_value;
             }
-            free_value(cond);
+            free_value_gc(vm, cond);
             break;
         }
 
@@ -1845,9 +1964,9 @@ VMError vm_execute_instruction(VM* vm) {
 
                 if (!func_val) {
                     vm_error(vm, VM_UNDEFINED_FUNCTION, "Undefined function '%s'", func_name.as.string);
-                    free_value(func_name);
+                    free_value_gc(vm, func_name);
                     for (int i = 0; i < arg_count; i++) {
-                        free_value(args[i]);
+                        free_value_gc(vm, args[i]);
                     }
                     return VM_UNDEFINED_FUNCTION;
                 }
@@ -1858,7 +1977,7 @@ VMError vm_execute_instruction(VM* vm) {
                     vm_push(vm, result);
 
                     for (int i = 0; i < arg_count; i++) {
-                        free_value(args[i]);
+                        free_value_gc(vm, args[i]);
                     }
                 }
                 else if (func_val->type == VAL_FUNCTION) {
@@ -1870,7 +1989,7 @@ VMError vm_execute_instruction(VM* vm) {
                         vm_error(vm, VM_ARGUMENT_MISMATCH, 
                                 "Function '%s' expects %zu arguments, got %d", 
                                 func_name.as.string, func->param_count, arg_count);
-                        free_value(func_name);
+                        free_value_gc(vm, func_name);
                         for (int i = 0; i < arg_count; i++) {
                             free_value(args[i]);
                         }
@@ -1883,7 +2002,7 @@ VMError vm_execute_instruction(VM* vm) {
                         CallFrame* new_call_stack = (CallFrame*)realloc(vm->call_stack, new_capacity * sizeof(CallFrame));
                         if (!new_call_stack) {
                             vm_error(vm, VM_MEMORY_ERROR, "Failed to expand call stack");
-                            free_value(func_name);
+                            free_value_gc(vm, func_name);
                             for (int i = 0; i < arg_count; i++) {
                                 free_value(args[i]);
                             }
@@ -1918,15 +2037,15 @@ VMError vm_execute_instruction(VM* vm) {
                 }
                 else {
                     vm_error(vm, VM_TYPE_ERROR, "'%s' is not a function", func_name.as.string);
-                    free_value(func_name);
+                    free_value_gc(vm, func_name);
                     for (int i = 0; i < arg_count; i++) {
-                        free_value(args[i]);
+                        free_value_gc(vm, args[i]);
                     }
                     return VM_TYPE_ERROR;
                 }
             }
 
-            free_value(func_name);
+            free_value_gc(vm, func_name);
             break;
         }
 
@@ -2049,7 +2168,7 @@ VMError vm_execute_instruction(VM* vm) {
 
             if (obj.type != VAL_STRUCT_INSTANCE) {
                 vm_error(vm, VM_NOT_A_STRUCT, "Cannot access member of non-struct");
-                free_value(obj);
+                free_value_gc(vm, obj);
                 return VM_NOT_A_STRUCT;
             }
 
@@ -2067,7 +2186,7 @@ VMError vm_execute_instruction(VM* vm) {
 
             if (member_idx == (size_t)-1) {
                 vm_error(vm, VM_UNDEFINED_MEMBER, "Undefined member '%s'", member_name);
-                free_value(obj);
+                free_value_gc(vm, obj);
                 return VM_UNDEFINED_MEMBER;
             }
 
@@ -2092,8 +2211,8 @@ VMError vm_execute_instruction(VM* vm) {
 
             if (obj.type != VAL_STRUCT_INSTANCE) {
                 vm_error(vm, VM_NOT_A_STRUCT, "Cannot store member of non-struct");
-                free_value(obj);
-                free_value(value);
+                free_value_gc(vm, obj);
+                free_value_gc(vm, value);
                 return VM_NOT_A_STRUCT;
             }
 
@@ -2117,16 +2236,16 @@ VMError vm_execute_instruction(VM* vm) {
             if (member_idx == (size_t)-1) {
                 vm_error(vm, VM_UNDEFINED_MEMBER, "Undefined member '%s'", member_name);
                 // Don't free obj here since it's a reference type
-                free_value(value);
+                free_value_gc(vm, value);
                 return VM_UNDEFINED_MEMBER;
             }
             else {
                 // Update existing member value
                 //printf("DEBUG: Setting member[%zu] to value\n", member_idx);
-                free_value(instance->members[member_idx]);
+                free_value_gc(vm, instance->members[member_idx]);
                 instance->members[member_idx] = copy_value(vm, value);
                 //printf("DEBUG: After copy, member[%zu] type=%d\n", member_idx, instance->members[member_idx].type);
-                free_value(value);
+                free_value_gc(vm, value);
                 //printf("--- DEBUG\n");
             }
             // Don't free obj since it's a reference type that's still stored in the variable
@@ -2155,8 +2274,8 @@ VMError vm_execute_instruction(VM* vm) {
 
             if (list.type != VAL_LIST) {
                 vm_error(vm, VM_TYPE_ERROR, "Cannot push to non-list");
-                free_value(item);
-                free_value(list);
+                free_value_gc(vm, item);
+                free_value_gc(vm, list);
                 return VM_TYPE_ERROR;
             }
 
@@ -2187,23 +2306,23 @@ VMError vm_execute_instruction(VM* vm) {
 
             if (list.type != VAL_LIST) {
                 vm_error(vm, VM_TYPE_ERROR, "Cannot index non-list");
-                free_value(index);
-                free_value(list);
+                free_value_gc(vm, index);
+                free_value_gc(vm, list);
                 return VM_TYPE_ERROR;
             }
 
             if (index.type != VAL_NUMBER) {
                 vm_error(vm, VM_TYPE_ERROR, "List index must be number");
-                free_value(index);
-                free_value(list);
+                free_value_gc(vm, index);
+                free_value_gc(vm, list);
                 return VM_TYPE_ERROR;
             }
 
             int idx = (int)index.as.number;
             if (idx < 0 || idx >= (int)list.as.list->count) {
                 vm_error(vm, VM_INDEX_OUT_OF_BOUNDS, "List index out of bounds");
-                free_value(index);
-                free_value(list);
+                free_value_gc(vm, index);
+                free_value_gc(vm, list);
                 return VM_INDEX_OUT_OF_BOUNDS;
             }
 
