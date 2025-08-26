@@ -21,6 +21,8 @@ typedef enum _sbNType{
 
 typedef struct ASTNode {
     _sbNType type;
+    int source_line;        /* Source line number */
+    int source_column;      /* Source column number */
     union {
         double num_value;
         char* str_value;
@@ -115,7 +117,8 @@ extern _sbToken* peek_ahead(Parser* parser, int offset);
 extern bool match_token(_sbTkState* parser, const char* expected);
 extern bool check_ahead(Parser* parser, int offset, const char* expected);
 
-extern ASTNode* create_ast_node(_sbNType type);
+extern ASTNode* create_ast_node(_sbNType type, Parser* parser);
+extern ASTNode* create_ast_node_with_token(_sbNType type, _sbToken* token);
 extern void free_ast(ASTNode* node);
 
 extern ASTNode* parse_primary(Parser* parser);

@@ -116,6 +116,8 @@ typedef struct {
         int int_value;          /* Integer operand (for jump addresses, etc.) */
         size_t size_value;      /* size_t type operand */
     } operand;
+    int source_line;            /* Source line number for error reporting */
+    int source_column;          /* Source column number for error reporting */
 } Instruction;
 
 /* Function information structure */
@@ -139,6 +141,9 @@ typedef struct {
     DynArray* structs;          /* Structure table */
     DynArray* globals;          /* Global variable table */
     size_t current_addr;        /* Current instruction address */
+    Parser* parser;             /* Parser reference for source line tracking */
+    int current_source_line;    /* Current source line for instruction generation */
+    int current_source_column;  /* Current source column for instruction generation */
 } BytecodeGenerator;
 
 /* ========== Bytecode Generator Management Functions ========== */
@@ -148,6 +153,12 @@ extern BytecodeGenerator* create_bytecode_generator();
 
 /* Destroy bytecode generator, release all resources */
 extern void destroy_bytecode_generator(BytecodeGenerator* gen);
+
+/* Set parser reference for source tracking */
+extern void bytecode_set_parser(BytecodeGenerator* gen, Parser* parser);
+
+/* Update current source position from AST node */
+extern void bytecode_set_source_pos(BytecodeGenerator* gen, int line, int column);
 
 /* ========== Instruction Emission Functions ========== */
 

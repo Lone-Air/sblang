@@ -1,0 +1,7 @@
+// Test undefined variable
+function test_undefined() {
+    return unknown_variable + 5;
+}
+
+result = test_undefined();
+print(result);

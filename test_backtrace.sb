@@ -1,0 +1,16 @@
+// Test file for backtrace functionality
+// This file contains an intentional error to test source code snippets
+
+function test() {
+    x = 5;
+    y = 0;
+    result = x / y;  // This should cause a division by zero error
+    return result;
+}
+
+function main() {
+    answer = test();
+    print(answer);
+}
+
+main();

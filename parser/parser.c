@@ -117,16 +117,43 @@ bool check_ahead(Parser* parser, int offset, const char* expected) {
     return strcmp(parser->tk[pos].tk, expected) == 0;
 }
 
-ASTNode* create_ast_node(_sbNType type) {
+ASTNode* create_ast_node(_sbNType type, Parser* parser) {
     ASTNode* node = calloc(1, sizeof(ASTNode));
     node->type = type;
+    
+    // Set source location information
+    if (parser && parser->position < parser->size) {
+        _sbToken* token = &parser->tk[parser->position];
+        node->source_line = token->line;
+        node->source_column = token->pos;
+    } else {
+        node->source_line = 0;
+        node->source_column = 0;
+    }
+    
+    return node;
+}
+
+ASTNode* create_ast_node_with_token(_sbNType type, _sbToken* token) {
+    ASTNode* node = calloc(1, sizeof(ASTNode));
+    node->type = type;
+    
+    // Set source location information from specific token
+    if (token) {
+        node->source_line = token->line;
+        node->source_column = token->pos;
+    } else {
+        node->source_line = 0;
+        node->source_column = 0;
+    }
+    
     return node;
 }
 
 ASTNode* parse_program(Parser* parser) {
     reset_error();
 
-    ASTNode* program = create_ast_node(_sbPROGRAM);
+    ASTNode* program = create_ast_node(_sbPROGRAM, parser);
     program->data.list.items = malloc(sizeof(ASTNode*));
     program->data.list.count = 0;
 
@@ -209,7 +236,7 @@ ASTNode* parse_statement(Parser* parser) {
     if (token->type == _sbReturn) { // return ...;
         next(parser); // remove 'return'
 
-        ASTNode* return_stmt = create_ast_node(_sbRETURN);
+        ASTNode* return_stmt = create_ast_node(_sbRETURN, parser);
         if (!match_token(parser, ";") && !match_token(parser, "}")) {
             return_stmt->data.return_stmt.value = parse_expression(parser);
         }
@@ -235,14 +262,14 @@ ASTNode* parse_statement(Parser* parser) {
 ASTNode* parse_struct_definition(Parser* parser) {
     next(parser); // remove 'struct'
     
-    ASTNode* struct_def = create_ast_node(_sbSTRUCT);
+    ASTNode* struct_def = create_ast_node(_sbSTRUCT, parser);
     if (!struct_def) return nullptr;
     
     // parse structure name
     _sbToken* name_token = peek(parser);
     if (name_token && name_token->type == _sbKey) {
         next(parser);
-        struct_def->data.struct_def.name = create_ast_node(_sbIDENTIFIER);
+        struct_def->data.struct_def.name = create_ast_node(_sbIDENTIFIER, parser);
         if (struct_def->data.struct_def.name) {
             struct_def->data.struct_def.name->data.str_value = _s_strdup(name_token->tk);
         }
@@ -257,7 +284,7 @@ ASTNode* parse_struct_definition(Parser* parser) {
         _sbToken* open_brace = peek(parser);
         next(parser); // remove '{'
         
-        ASTNode* members = create_ast_node(_sbMEMBER_LIST);
+        ASTNode* members = create_ast_node(_sbMEMBER_LIST, parser);
         if (members) {
             members->data.list.items = calloc(1, sizeof(ASTNode*));
             members->data.list.count = 0;
@@ -282,7 +309,7 @@ ASTNode* parse_struct_definition(Parser* parser) {
                         return nullptr;
                     }
                     
-                    ASTNode* member = create_ast_node(_sbIDENTIFIER);
+                    ASTNode* member = create_ast_node(_sbIDENTIFIER, parser);
                     if (member) {
                         member->data.str_value = _s_strdup(member_token->tk);
                         members->data.list.items[members->data.list.count++] = member;
@@ -364,17 +391,17 @@ ASTNode* parse_struct_instantiation(Parser* parser) {
     next(parser); // remove structure name
     
     // Create a structure instance node
-    ASTNode* struct_inst = create_ast_node(_sbSTRUCT_INSTANTIATION);
+    ASTNode* struct_inst = create_ast_node(_sbSTRUCT_INSTANTIATION, parser);
     if (!struct_inst) return nullptr;
     
     // Set variable name
-    struct_inst->data.struct_inst.variable = create_ast_node(_sbIDENTIFIER);
+    struct_inst->data.struct_inst.variable = create_ast_node(_sbIDENTIFIER, parser);
     if (struct_inst->data.struct_inst.variable) {
         struct_inst->data.struct_inst.variable->data.str_value = _s_strdup(var_token->tk);
     }
     
     // Set structure name
-    struct_inst->data.struct_inst.struct_type = create_ast_node(_sbIDENTIFIER);
+    struct_inst->data.struct_inst.struct_type = create_ast_node(_sbIDENTIFIER, parser);
     if (struct_inst->data.struct_inst.struct_type) {
         struct_inst->data.struct_inst.struct_type->data.str_value = _s_strdup(struct_token->tk);
     }
@@ -385,14 +412,14 @@ ASTNode* parse_struct_instantiation(Parser* parser) {
 ASTNode* parse_function_definition(Parser* parser) {
     next(parser); // remove 'function'
 
-    ASTNode* func_def = create_ast_node(_sbFUNCTION);
+    ASTNode* func_def = create_ast_node(_sbFUNCTION, parser);
     if (!func_def) return nullptr;
 
     // parse function name
     _sbToken* name_token = peek(parser);
     if (name_token && name_token->type == _sbKey) {
         next(parser);
-        func_def->data.function_def.name = create_ast_node(_sbIDENTIFIER);
+        func_def->data.function_def.name = create_ast_node(_sbIDENTIFIER, parser);
         if (func_def->data.function_def.name) {
             func_def->data.function_def.name->data.str_value = _s_strdup(name_token->tk);
         }
@@ -409,7 +436,7 @@ ASTNode* parse_function_definition(Parser* parser) {
         _sbToken* open_paren = peek(parser);
         next(parser); // remove '('
 
-        ASTNode* params = create_ast_node(_sbPARAMETER_LIST);
+        ASTNode* params = create_ast_node(_sbPARAMETER_LIST, parser);
         if (params){
             params->data.list.items = malloc(sizeof(ASTNode*));
             params->data.list.count = 0;
@@ -425,7 +452,7 @@ ASTNode* parse_function_definition(Parser* parser) {
                         params->data.list.items = new_items;
                     }
 
-                    ASTNode* param = create_ast_node(_sbIDENTIFIER);
+                    ASTNode* param = create_ast_node(_sbIDENTIFIER, parser);
                     if (param) {
                         param->data.str_value = _s_strdup(param_token->tk);
                         params->data.list.items[params->data.list.count++] = param;
@@ -477,10 +504,10 @@ ASTNode* parse_function_definition(Parser* parser) {
 ASTNode* parse_global_statement(Parser* parser) {
     next(parser); // remove 'global'
 
-    ASTNode* global_stmt = create_ast_node(_sbGLOBAL);
+    ASTNode* global_stmt = create_ast_node(_sbGLOBAL, parser);
 
     // create variable list storage
-    ASTNode* variables = create_ast_node(_sbGLOBAL_LIST);
+    ASTNode* variables = create_ast_node(_sbGLOBAL_LIST, parser);
     variables->data.list.items = malloc(sizeof(ASTNode*));
     variables->data.list.count = 0;
 
@@ -491,7 +518,7 @@ ASTNode* parse_global_statement(Parser* parser) {
         // check for variables
         if (token->type == _sbKey || token->type == _sbStr) {
             next(parser);
-            ASTNode* variable = create_ast_node(_sbIDENTIFIER);
+            ASTNode* variable = create_ast_node(_sbIDENTIFIER, parser);
             variable->data.str_value = _s_strdup(token->tk);
             variables->data.list.items = realloc(variables->data.list.items, sizeof(ASTNode*) * (variables->data.list.count + 1));
             variables->data.list.items[variables->data.list.count++] = variable;
@@ -547,10 +574,10 @@ ASTNode* parse_global_statement(Parser* parser) {
 ASTNode* parse_load_statement(Parser* parser) {
     next(parser); // remove 'load'
     
-    ASTNode* load_stmt = create_ast_node(_sbLOAD);
+    ASTNode* load_stmt = create_ast_node(_sbLOAD, parser);
     
     // create module list storage
-    ASTNode* modules = create_ast_node(_sbMODULE_LIST);
+    ASTNode* modules = create_ast_node(_sbMODULE_LIST, parser);
     modules->data.list.items = malloc(sizeof(ASTNode*));
     modules->data.list.count = 0;
     
@@ -561,7 +588,7 @@ ASTNode* parse_load_statement(Parser* parser) {
         // check for modules
         if (token->type == _sbKey || token->type == _sbStr) {
             next(parser);
-            ASTNode* module = create_ast_node(_sbIDENTIFIER);
+            ASTNode* module = create_ast_node(_sbIDENTIFIER, parser);
             module->data.str_value = _s_strdup(token->tk);
             modules->data.list.items = realloc(modules->data.list.items, sizeof(ASTNode*) * (modules->data.list.count + 1));
             modules->data.list.items[modules->data.list.count++] = module;
@@ -617,7 +644,7 @@ ASTNode* parse_load_statement(Parser* parser) {
 ASTNode* parse_if_else_statement(Parser* parser) {
     next(parser); // remove 'if'
 
-    ASTNode* if_stmt = create_ast_node(_sbIF);
+    ASTNode* if_stmt = create_ast_node(_sbIF, parser);
 
     if (match_token(parser, "(")) {
         _sbToken* open_paren = peek(parser);
@@ -673,7 +700,7 @@ ASTNode* parse_if_else_statement(Parser* parser) {
 ASTNode* parse_while_statement(Parser* parser) {
     next(parser); // remove 'while'
     
-    ASTNode* while_stmt = create_ast_node(_sbWHILE);
+    ASTNode* while_stmt = create_ast_node(_sbWHILE, parser);
     
     if (match_token(parser, "(")) {
         _sbToken* open_paren = peek(parser);
@@ -711,7 +738,7 @@ ASTNode* parse_while_statement(Parser* parser) {
 ASTNode* parse_for_statement(Parser* parser) {
     next(parser); // remove 'for'
     
-    ASTNode* for_stmt = create_ast_node(_sbFOR);
+    ASTNode* for_stmt = create_ast_node(_sbFOR, parser);
     if (!for_stmt) return nullptr;
     
     if (match_token(parser, "(")) {
@@ -796,7 +823,7 @@ ASTNode* parse_assignment(Parser* parser) {
             return nullptr;
         }
 
-        ASTNode* assignment = create_ast_node(_sbASSIGNMENT);
+        ASTNode* assignment = create_ast_node(_sbASSIGNMENT, parser);
         if (assignment) {
             assignment->data.assignment.left = left;
             assignment->data.assignment.right = right;
@@ -820,7 +847,7 @@ ASTNode* parse_block(Parser* parser) {
     _sbToken* open_brace = peek(parser);
     next(parser); // remove '{'
 
-    ASTNode* block = create_ast_node(_sbBLOCK);
+    ASTNode* block = create_ast_node(_sbBLOCK, parser);
     block->data.list.items = malloc(sizeof(ASTNode*));
     block->data.list.count = 0;
     while (!match_token(parser, "}") && peek(parser)) {
@@ -861,7 +888,7 @@ ASTNode* parse_logical(Parser* parser) { // '&&' '||'
             return nullptr;
         }
 
-        ASTNode* node = create_ast_node(_sbBINARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbBINARY_LITERAL, parser);
         node->data.binary_op.op = _s_strdup(op->tk);
         node->data.binary_op.left = left;
         node->data.binary_op.right = right;
@@ -888,7 +915,7 @@ ASTNode* parse_comparison(Parser* parser) {
             return nullptr;
         }
         
-        ASTNode* node = create_ast_node(_sbBINARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbBINARY_LITERAL, parser);
         node->data.binary_op.op = _s_strdup(op->tk);
         node->data.binary_op.left = left;
         node->data.binary_op.right = right;
@@ -913,7 +940,7 @@ ASTNode* parse_additive(Parser* parser) {
             return nullptr;
         }
         
-        ASTNode* node = create_ast_node(_sbBINARY_LITERAL);
+        ASTNode* node = create_ast_node_with_token(_sbBINARY_LITERAL, op);
         node->data.binary_op.op = _s_strdup(op->tk);
         node->data.binary_op.left = left;
         node->data.binary_op.right = right;
@@ -938,7 +965,7 @@ ASTNode* parse_power(Parser* parser) {
             return nullptr;
         }
 
-        ASTNode* node = create_ast_node(_sbBINARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbBINARY_LITERAL, parser);
         if (node) {
             node->data.binary_op.op = _s_strdup(op->tk);
             node->data.binary_op.left = left;
@@ -965,7 +992,7 @@ ASTNode* parse_multiplicative(Parser* parser) {
             return nullptr;
         }
         
-        ASTNode* node = create_ast_node(_sbBINARY_LITERAL);
+        ASTNode* node = create_ast_node_with_token(_sbBINARY_LITERAL, op);
         node->data.binary_op.op = _s_strdup(op->tk);
         node->data.binary_op.left = left;
         node->data.binary_op.right = right;
@@ -990,7 +1017,7 @@ ASTNode* parse_shift(Parser* parser) {
             return nullptr;
         }
 
-        ASTNode* node = create_ast_node(_sbBINARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbBINARY_LITERAL, parser);
         if (node) {
             node->data.binary_op.op = _s_strdup(op->tk);
             node->data.binary_op.left = left;
@@ -1018,7 +1045,7 @@ ASTNode* parse_bitwise_and(Parser* parser) {
             return nullptr;
         }
 
-        ASTNode* node = create_ast_node(_sbBINARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbBINARY_LITERAL, parser);
         if (node) {
             node->data.binary_op.op = _s_strdup(op->tk);
             node->data.binary_op.left = left;
@@ -1046,7 +1073,7 @@ ASTNode* parse_bitwise_or(Parser* parser) {
             return nullptr;
         }
 
-        ASTNode* node = create_ast_node(_sbBINARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbBINARY_LITERAL, parser);
         if (node) {
             node->data.binary_op.op = _s_strdup(op->tk);
             node->data.binary_op.left = left;
@@ -1073,7 +1100,7 @@ ASTNode* parse_bitwise_xor(Parser* parser) {
             return nullptr;
         }
 
-        ASTNode* node = create_ast_node(_sbBINARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbBINARY_LITERAL, parser);
         if (node) {
             node->data.binary_op.op = _s_strdup(op->tk);
             node->data.binary_op.left = left;
@@ -1102,11 +1129,11 @@ ASTNode* parse_postfix(Parser* parser) {
             
             next(parser); // remove member identifier
             
-            ASTNode* member_access = create_ast_node(_sbMEMBER_ACCESS);
+            ASTNode* member_access = create_ast_node(_sbMEMBER_ACCESS, parser);
             if (!member_access) break;
             
             member_access->data.member_access.object = node;
-            member_access->data.member_access.member = create_ast_node(_sbIDENTIFIER);
+            member_access->data.member_access.member = create_ast_node(_sbIDENTIFIER, parser);
             if (member_access->data.member_access.member) {
                 member_access->data.member_access.member->data.str_value = _s_strdup(member_token->tk);
             }
@@ -1118,7 +1145,7 @@ ASTNode* parse_postfix(Parser* parser) {
             _sbToken* open_paren = peek(parser);
             next(parser);
             
-            ASTNode* func_call = create_ast_node(_sbFUNCTION_CALL);
+            ASTNode* func_call = create_ast_node(_sbFUNCTION_CALL, parser);
             if (!func_call) break;
 
             if (node->type != _sbIDENTIFIER) {
@@ -1130,7 +1157,7 @@ ASTNode* parse_postfix(Parser* parser) {
             
             func_call->data.function_call.function_name = node;
             
-            ASTNode* args = create_ast_node(_sbARGUMENTS);
+            ASTNode* args = create_ast_node(_sbARGUMENTS, parser);
             if (args) {
                 args->data.list.items = calloc(1, sizeof(ASTNode*));
                 args->data.list.count = 0;
@@ -1185,7 +1212,7 @@ ASTNode* parse_postfix(Parser* parser) {
             _sbToken* open_bracket = peek(parser);
             next(parser); // remove '['
 
-            ASTNode* list_access = create_ast_node(_sbLIST_ACCESS);
+            ASTNode* list_access = create_ast_node(_sbLIST_ACCESS, parser);
             if (!list_access) break;
 
             list_access->data.list_access.list = node;
@@ -1242,7 +1269,7 @@ ASTNode* parse_primary(Parser* parser) {
     // Unary '!': !...
     if (match_token(parser, "!")) {
         next(parser);
-        ASTNode* node = create_ast_node(_sbUNARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbUNARY_LITERAL, parser);
         node->data.unary_op.op = _s_strdup("!");
         node->data.unary_op.operand = parse_postfix(parser);
         return node;
@@ -1251,7 +1278,7 @@ ASTNode* parse_primary(Parser* parser) {
     // Unary '~': ~...
     if (match_token(parser, "~")) { // bitwise_not
         next(parser);
-        ASTNode* node = create_ast_node(_sbUNARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbUNARY_LITERAL, parser);
         node->data.unary_op.op = _s_strdup("~");
         node->data.unary_op.operand = parse_postfix(parser);
         return node;
@@ -1260,7 +1287,7 @@ ASTNode* parse_primary(Parser* parser) {
     // Unary '-': -xxx
     if (match_token(parser, "-")) {
         next(parser);
-        ASTNode* node = create_ast_node(_sbUNARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbUNARY_LITERAL, parser);
         node->data.unary_op.op = _s_strdup("-");
         node->data.unary_op.operand = parse_primary(parser);
         return node;
@@ -1269,7 +1296,7 @@ ASTNode* parse_primary(Parser* parser) {
     // Unary '+': +xxx
     if (match_token(parser, "+")) {
         next(parser);
-        ASTNode* node = create_ast_node(_sbUNARY_LITERAL);
+        ASTNode* node = create_ast_node(_sbUNARY_LITERAL, parser);
         node->data.unary_op.op = _s_strdup("+");
         node->data.unary_op.operand = parse_primary(parser);
         return node;
@@ -1278,7 +1305,7 @@ ASTNode* parse_primary(Parser* parser) {
     // Number
     if (token->type == _sbNum) {
         next(parser);
-        ASTNode* node = create_ast_node(_sbNUMBER_LITERAL);
+        ASTNode* node = create_ast_node(_sbNUMBER_LITERAL, parser);
         node->data.num_value = atof(token->tk);
         return node;
     }
@@ -1286,7 +1313,7 @@ ASTNode* parse_primary(Parser* parser) {
     // String
     if (token->type == _sbStr) {
         next(parser);
-        ASTNode* node = create_ast_node(_sbSTRING_LITERAL);
+        ASTNode* node = create_ast_node(_sbSTRING_LITERAL, parser);
         node->data.str_value = _s_strdup(token->tk);
         return node;
     }
@@ -1294,7 +1321,7 @@ ASTNode* parse_primary(Parser* parser) {
     // identifier
     if (token->type == _sbKey) {
         next(parser);
-        ASTNode* node = create_ast_node(_sbIDENTIFIER);
+        ASTNode* node = create_ast_node(_sbIDENTIFIER, parser);
         node->data.str_value = _s_strdup(token->tk);
         return node;
     }
@@ -1306,7 +1333,7 @@ ASTNode* parse_list(Parser* parser) {
     _sbToken* open_bracket = peek(parser);
     next(parser); // remove '['
     
-    ASTNode* list = create_ast_node(_sbLIST_LITERAL);
+    ASTNode* list = create_ast_node(_sbLIST_LITERAL, parser);
     if (!list) return nullptr;
 
     list->data.list.items = malloc(sizeof(ASTNode*));

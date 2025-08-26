@@ -182,6 +182,11 @@ VM* create_vm() {
     vm->gc_threshold = 1024 * 1024; // 1MB default threshold
     vm->gc_bytes_allocated = 0;
 
+    /* Initialize source tracking */
+    vm->source_filename = nullptr;
+    vm->source_content = nullptr;
+    vm->is_bytecode_execution = false;
+
     if (vm) {
         /* Register built-in functions */
         register_builtin_functions(vm);
@@ -351,6 +356,16 @@ void destroy_vm(VM* vm) {
     if (vm->error_message) {
         free(vm->error_message);
         vm->error_message = nullptr;
+    }
+
+    // Free source tracking information
+    if (vm->source_filename) {
+        free(vm->source_filename);
+        vm->source_filename = nullptr;
+    }
+    if (vm->source_content) {
+        free(vm->source_content);
+        vm->source_content = nullptr;
     }
 
     // Clear remaining fields
@@ -841,19 +856,19 @@ const char* vm_error_string(VMError error) {
     switch (error) {
         case VM_OK: return "OK";
         case VM_RUNTIME_ERROR: return "RuntimeError";
-        case VM_STACK_OVERFLOW: return "StackOverflow";
-        case VM_STACK_UNDERFLOW: return "StackUnderflow";
-        case VM_UNDEFINED_VARIABLE: return "UndefinedVariable";
+        case VM_STACK_OVERFLOW: return "StackOverflowError";
+        case VM_STACK_UNDERFLOW: return "StackUnderflowError";
+        case VM_UNDEFINED_VARIABLE: return "UndefinedVariableError";
         case VM_TYPE_ERROR: return "TypeError";
-        case VM_DIVISION_BY_ZERO: return "DivisionByZero";
-        case VM_INDEX_OUT_OF_BOUNDS: return "IndexOutOfBounds";
-        case VM_UNDEFINED_FUNCTION: return "UndefinedFunction";
-        case VM_ARGUMENT_MISMATCH: return "ArgumentMismatch";
+        case VM_DIVISION_BY_ZERO: return "DivisionByZeroError";
+        case VM_INDEX_OUT_OF_BOUNDS: return "IndexOutOfBoundsError";
+        case VM_UNDEFINED_FUNCTION: return "UndefinedFunctionError";
+        case VM_ARGUMENT_MISMATCH: return "ArgumentMismatchError";
         case VM_LOAD_ERROR: return "LoadError";
         case VM_MEMORY_ERROR: return "MemoryError";
-        case VM_INVALID_OPCODE: return "InvalidOpcode";
-        case VM_UNDEFINED_MEMBER: return "UndefinedMember";
-        case VM_NOT_A_STRUCT: return "NotAStruct";
+        case VM_INVALID_OPCODE: return "InvalidOpcodeError";
+        case VM_UNDEFINED_MEMBER: return "UndefinedMemberError";
+        case VM_NOT_A_STRUCT: return "NotAStructError";
         default: return "UnknownError";
     }
 }
@@ -864,6 +879,8 @@ const char* vm_error_string(VMError error) {
 void vm_print_error(VM* vm) {
     if (!vm) return;
 
+    fprintf(stderr, "An error occurred during running\n");
+
     fprintf(stderr, "%s", vm_error_string(vm->last_error));
     if (vm->error_message) {
         fprintf(stderr, ": %s", vm->error_message);
@@ -871,7 +888,50 @@ void vm_print_error(VM* vm) {
     fprintf(stderr, "\n");
 
     if (vm->pc < vm->instruction_count) {
-        fprintf(stderr, "  at instruction %zu\n", vm->pc);
+        Instruction* current_inst = &vm->instructions[vm->pc];
+        
+        // Show location information
+        if (vm->is_bytecode_execution) {
+            fprintf(stderr, "  at instruction %zu in <bytecode>\n", vm->pc);
+        } else if (vm->source_filename && current_inst->source_line >= 0) {
+            fprintf(stderr, "  at %s:%d:%d (instruction %zu)\n", 
+                    vm->source_filename, current_inst->source_line + 1, 
+                    current_inst->source_column + 1, vm->pc);
+            
+            // Show source code snippet if available
+            if (vm->source_content) {
+                fprintf(stderr, "  Traceback(may not be accurate):\n");
+                
+                // Split source content into lines
+                char* content_copy = _s_strdup(vm->source_content);
+                if (content_copy) {
+                    char* line = strtok(content_copy, "\n");
+                    int line_num = 1;
+                    int error_line = current_inst->source_line + 1; // Convert from 0-based to 1-based
+                    
+                    // Show context: 2 lines before and after the error line
+                    int start_line = (error_line - 2) > 1 ? (error_line - 2) : 1;
+                    int end_line = error_line + 2;
+                    
+                    while (line != nullptr && line_num <= end_line) {
+                        if (line_num >= start_line) {
+                            if (line_num == error_line) {
+                                fprintf(stderr, " -> %4d | %s\n", line_num, line);
+                            } else {
+                                fprintf(stderr, "    %4d | %s\n", line_num, line);
+                            }
+                        }
+                        line = strtok(nullptr, "\n");
+                        line_num++;
+                    }
+                    free(content_copy);
+                } else {
+                    fprintf(stderr, "    <bytecode>\n");
+                }
+            }
+        } else {
+            fprintf(stderr, "  at instruction %zu\n", vm->pc);
+        }
     }
 }
 
@@ -892,6 +952,42 @@ void vm_print_stack(VM* vm) {
         }
     }
     printf("\n");
+}
+
+/* ========== Source Tracking Functions ========== */
+
+/**
+ * Set source information for backtrace functionality
+ */
+void vm_set_source_info(VM* vm, const char* filename, const char* source_content) {
+    if (!vm) return;
+
+    // Free existing source information
+    if (vm->source_filename) {
+        free(vm->source_filename);
+        vm->source_filename = nullptr;
+    }
+    if (vm->source_content) {
+        free(vm->source_content);
+        vm->source_content = nullptr;
+    }
+
+    // Set new source information
+    if (filename) {
+        vm->source_filename = _s_strdup(filename);
+    }
+    if (source_content) {
+        vm->source_content = _s_strdup(source_content);
+    }
+    vm->is_bytecode_execution = false;
+}
+
+/**
+ * Mark VM as executing bytecode only
+ */
+void vm_set_bytecode_execution(VM* vm, bool is_bytecode) {
+    if (!vm) return;
+    vm->is_bytecode_execution = is_bytecode;
 }
 
 /* ========== Variable Operation Functions ========== */

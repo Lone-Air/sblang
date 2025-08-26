@@ -1,0 +1,5 @@
+// Test type error
+x = "hello";
+y = 5;
+result = x - y;  // String minus number should cause type error
+print(result);

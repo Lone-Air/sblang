@@ -302,6 +302,9 @@ static bool compile_file(const char* input_file, const char* output_file) {
         return false;
     }
     
+    /* Set parser for source line tracking */
+    bytecode_set_parser(gen, parser);
+    
     if (!generate_bytecode(gen, ast)) {
         fprintf(stderr, "Error: Failed to generate bytecode\n");
         destroy_bytecode_generator(gen);
@@ -337,6 +340,7 @@ static bool compile_file(const char* input_file, const char* output_file) {
 static bool execute_file(const char* input_file) {
     BytecodeGenerator* gen = NULL;
     bool needs_cleanup = false;
+    char* source_content = NULL;
     
     /* Check if it's a bytecode file */
     if (is_bytecode_file(input_file)) {
@@ -353,6 +357,9 @@ static bool execute_file(const char* input_file) {
             fprintf(stderr, "Error: Failed to read file '%s'\n", input_file);
             return false;
         }
+        
+        /* Store source content for error reporting */
+        source_content = strdup(source);
         
         /* Lexical analysis */
         _sbToken* tokens = _sbLexer(source);
@@ -396,6 +403,9 @@ static bool execute_file(const char* input_file) {
             return false;
         }
         
+        /* Set parser for source line tracking */
+        bytecode_set_parser(gen, parser);
+        
         if (!generate_bytecode(gen, ast)) {
             fprintf(stderr, "Error: Failed to generate bytecode\n");
             destroy_bytecode_generator(gen);
@@ -426,7 +436,17 @@ static bool execute_file(const char* input_file) {
     if (!vm) {
         fprintf(stderr, "Error: Failed to create VM\n");
         if (needs_cleanup) destroy_bytecode_generator(gen);
+        if (source_content) free(source_content);
         return false;
+    }
+    
+    /* Set source information for backtrace */
+    if (source_content) {
+        vm_set_source_info(vm, input_file, source_content);
+        free(source_content);
+        source_content = NULL;
+    } else {
+        vm_set_bytecode_execution(vm, true);
     }
     
     /* Load bytecode into VM */

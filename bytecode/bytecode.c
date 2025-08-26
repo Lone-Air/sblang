@@ -76,6 +76,11 @@ BytecodeGenerator* create_bytecode_generator() {
     gen->structs = create_dynarray();       /* Struct table */
     gen->globals = create_dynarray();       /* Global variable table */
     gen->current_addr = 0;                  /* Start current address from 0 */
+    
+    /* Initialize source tracking */
+    gen->parser = nullptr;
+    gen->current_source_line = 0;
+    gen->current_source_column = 0;
 
     /* Check if memory allocation was successful */
     if (!gen->instructions || !gen->constants || !gen->functions ||
@@ -163,6 +168,23 @@ void destroy_bytecode_generator(BytecodeGenerator* gen) {
     free(gen);
 }
 
+/**
+ * Set parser reference for source tracking
+ */
+void bytecode_set_parser(BytecodeGenerator* gen, Parser* parser) {
+    if (!gen) return;
+    gen->parser = parser;
+}
+
+/**
+ * Set current source position from AST node
+ */
+void bytecode_set_source_pos(BytecodeGenerator* gen, int line, int column) {
+    if (!gen) return;
+    gen->current_source_line = line;
+    gen->current_source_column = column;
+}
+
 void emit_instruction(BytecodeGenerator* gen, OpCode opcode) {
     if (!gen) return;
     
@@ -171,6 +193,8 @@ void emit_instruction(BytecodeGenerator* gen, OpCode opcode) {
     
     inst->opcode = opcode;
     inst->operand.int_value = 0;
+    inst->source_line = gen->current_source_line;
+    inst->source_column = gen->current_source_column;
     
     dynarray_push(gen->instructions, inst);
     gen->current_addr++;
@@ -184,6 +208,8 @@ void emit_instruction_with_num(BytecodeGenerator* gen, OpCode opcode, double val
     
     inst->opcode = opcode;
     inst->operand.num_value = value;
+    inst->source_line = gen->current_source_line;
+    inst->source_column = gen->current_source_column;
     
     dynarray_push(gen->instructions, inst);
     gen->current_addr++;
@@ -197,6 +223,8 @@ void emit_instruction_with_str(BytecodeGenerator* gen, OpCode opcode, const char
     
     inst->opcode = opcode;
     inst->operand.str_value = _s_strdup(value);
+    inst->source_line = gen->current_source_line;
+    inst->source_column = gen->current_source_column;
     
     dynarray_push(gen->instructions, inst);
     gen->current_addr++;
@@ -210,6 +238,8 @@ void emit_instruction_with_int(BytecodeGenerator* gen, OpCode opcode, int value)
     
     inst->opcode = opcode;
     inst->operand.int_value = value;
+    inst->source_line = gen->current_source_line;
+    inst->source_column = gen->current_source_column;
     
     dynarray_push(gen->instructions, inst);
     gen->current_addr++;
@@ -311,6 +341,9 @@ int register_struct(BytecodeGenerator* gen, const char* name, DynArray* members)
 
 bool generate_expression(BytecodeGenerator* gen, ASTNode* node) {
     if (!gen || !node) return false;
+    
+    // Set source position from AST node
+    bytecode_set_source_pos(gen, node->source_line, node->source_column);
     
     switch (node->type) {
         case _sbNUMBER_LITERAL:
@@ -431,6 +464,9 @@ bool generate_expression(BytecodeGenerator* gen, ASTNode* node) {
 
 bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
     if (!gen || !node) return false;
+    
+    // Set source position from AST node
+    bytecode_set_source_pos(gen, node->source_line, node->source_column);
     
     switch (node->type) {
         case _sbASSIGNMENT: {

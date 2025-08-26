@@ -178,6 +178,11 @@ struct VM {
     size_t gc_threshold;            /* GC trigger threshold */
     size_t gc_bytes_allocated;      /* Total bytes allocated */
 
+    /* Source tracking for backtrace */
+    char* source_filename;          /* Source filename for error reporting */
+    char* source_content;           /* Source content for error snippets */
+    bool is_bytecode_execution;     /* Flag to indicate bytecode-only execution */
+
     int end_pc;
 };
 
@@ -297,6 +302,14 @@ extern void vm_print_stack(VM* vm);
 
 /* Print error information */
 extern void vm_print_error(VM* vm);
+
+/* ========== Source Tracking Functions ========== */
+
+/* Set source information for backtrace */
+extern void vm_set_source_info(VM* vm, const char* filename, const char* source_content);
+
+/* Mark VM as executing bytecode only */
+extern void vm_set_bytecode_execution(VM* vm, bool is_bytecode);
 
 /* ========== Garbage Collection Functions ========== */
 
