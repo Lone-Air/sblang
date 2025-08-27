@@ -915,6 +915,8 @@ const char* vm_error_string(VMError error) {
 void vm_print_error(VM* vm) {
     if (!vm) return;
 
+    vm->pc--;
+
     fprintf(stderr, "An error occurred during running\n");
 
     fprintf(stderr, "%s", vm_error_string(vm->last_error));
@@ -970,6 +972,7 @@ void vm_print_error(VM* vm) {
         }
     }
     fprintf(stderr, "\n");
+    vm->pc++;
 }
 
 /**
