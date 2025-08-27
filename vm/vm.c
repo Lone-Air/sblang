@@ -1617,7 +1617,12 @@ static bool load_module(VM* vm, const char* module_name) {
     /* If not found in lib directory, fall back to original loading logic */
     
     /* First try to load shared library (.so or .dll) */
-    snprintf(filename, sizeof(filename), "./lib%s%s", module_name, SHARED_LIB_EXT);
+    char script_path[PATH_MAX];
+    char buffer[PATH_MAX];
+    realpath(vm->source_filename, buffer);
+    strcpy(script_path, buffer);
+    dirname(script_path);
+    snprintf(filename, sizeof(filename), "%s/lib%s%s", script_path, module_name, SHARED_LIB_EXT);
     //printf("--- DEBUG: so library: %s", filename);
     if (file_exists(filename)) {
         if (load_shared_library(vm, filename, module_name)) {
