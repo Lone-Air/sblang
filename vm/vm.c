@@ -1633,7 +1633,7 @@ static bool load_module(VM* vm, const char* module_name) {
     }
     
     /* Then try to load bytecode file (.sbc) */
-    snprintf(filename, sizeof(filename), "%s.sbc", module_name);
+    snprintf(filename, sizeof(filename), "%s/%s.sbc", script_path, module_name);
     if (file_exists(filename)) {
         if (load_bytecode_file(vm, filename, module_name)) {
             return true;
@@ -1643,7 +1643,7 @@ static bool load_module(VM* vm, const char* module_name) {
     }
     
     /* Finally try to load source file (.sb) */
-    snprintf(filename, sizeof(filename), "%s.sb", module_name);
+    snprintf(filename, sizeof(filename), "%s/%s.sb", script_path, module_name);
     if (file_exists(filename)) {
         if (load_source_file(vm, filename, module_name)) {
             return true;
