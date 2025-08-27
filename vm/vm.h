@@ -289,6 +289,9 @@ extern void free_value_gc(VM* vm, Value value);
 /* Free memory occupied by value */
 extern void free_value(Value value);
 
+/* ========== No skipping repeated seperator: strtok ========== */
+extern char* _no_skip_strtok(char* str, const char* delim);
+
 /* ========== Error Handling Functions ========== */
 
 /* Set VM error */

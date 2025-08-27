@@ -36,6 +36,42 @@
 #endif
 #endif
 
+/* ========== No skipping repeated seperator: strtok ========== */
+char* _no_skip_strtok(char* str, const char* delim){
+    static char* next_token = nullptr;  // Save the starting position for the next call
+    static bool finished = false;       // Flag indicating whether processing is complete
+    char* token_start;
+
+    // If a new string is passed in, reset the state
+    if (str != nullptr) {
+        next_token = str;
+        finished = false;
+    }
+
+    // Return NULL if processing is already complete
+    if (finished || next_token == nullptr) {
+        return nullptr;
+    }
+
+    // Record the start position of the current token
+    token_start = next_token;
+
+    // Find the position of the next delimiter
+    char* delim_pos = strpbrk(next_token, delim);
+
+    if (delim_pos != nullptr) {
+        // Replace the delimiter with '\0'
+        *delim_pos = '\0';
+        // Update next_token to point to the position after the delimiter
+        next_token = delim_pos + 1;
+    } else {
+        // No delimiter found - this is the last token
+        finished = true;
+    }
+
+    return token_start;
+}
+
 /* ========== Variable Table Management Functions ========== */
 
 /* Forward declaration */
@@ -900,12 +936,12 @@ void vm_print_error(VM* vm) {
             
             // Show source code snippet if available
             if (vm->source_content) {
-                fprintf(stderr, "  Traceback(may not be accurate):\n");
+                fprintf(stderr, "  Traceback (most recent call last):\n");
                 
                 // Split source content into lines
                 char* content_copy = _s_strdup(vm->source_content);
                 if (content_copy) {
-                    char* line = strtok(content_copy, "\n");
+                    char* line = _no_skip_strtok(content_copy, "\n");
                     int line_num = 1;
                     int error_line = current_inst->source_line + 1; // Convert from 0-based to 1-based
                     
@@ -921,7 +957,7 @@ void vm_print_error(VM* vm) {
                                 fprintf(stderr, "    %4d | %s\n", line_num, line);
                             }
                         }
-                        line = strtok(nullptr, "\n");
+                        line = _no_skip_strtok(nullptr, "\n");
                         line_num++;
                     }
                     free(content_copy);
@@ -933,6 +969,7 @@ void vm_print_error(VM* vm) {
             fprintf(stderr, "  at instruction %zu\n", vm->pc);
         }
     }
+    fprintf(stderr, "\n");
 }
 
 /**
@@ -1233,6 +1270,9 @@ static bool load_bytecode_file(VM* vm, const char* filename, const char* module_
     //printf("Loading bytecode module: %s\n", module_name);
 
     VMError result = vm_execute(vm);
+    if (result != VM_OK) {
+        vm_print_error(vm);
+    }
 
     /* Restore VM state */
     if (vm->instructions && vm->instructions != saved_instructions) {
@@ -1363,6 +1403,10 @@ static bool append_module_instructions(VM* vm, BytecodeGenerator* gen, size_t of
  * Load source file and compile
  */
 static bool load_source_file(VM* vm, const char* filename, const char* module_name) {
+    // For traceback
+    char* old_fn = vm->source_filename;
+    char* old_ct = vm->source_content;
+
     /* Open module file */
     FILE* file = fopen(filename, "r");
     if (!file) {
@@ -1384,6 +1428,9 @@ static bool load_source_file(VM* vm, const char* filename, const char* module_na
     fread(source, 1, file_size, file);
     source[file_size] = '\0';
     fclose(file);
+
+    vm->source_filename = _s_strdup(filename);
+    vm->source_content = _s_strdup(source);
 
     /* Lexical analysis */
     _sbToken* tokens = _sbLexer(source);
@@ -1459,10 +1506,21 @@ static bool load_source_file(VM* vm, const char* filename, const char* module_na
     
     vm->pc = offset;  // Start executing from the module's first instruction
     VMError result = vm_execute(vm);
+
+    if (result != VM_OK) {
+        vm_print_error(vm);
+    }
+
     //printf("DEBUG: Module execution finished, restoring PC from %zu to %zu\n", vm->pc, saved_pc);
     
     /* Restore PC to continue main program execution */
+
+    free(vm->source_content);
+    free(vm->source_filename);
+
     vm->pc = saved_pc;
+    vm->source_filename = old_fn;
+    vm->source_content = old_ct;
 
     /* Clean up resources */
     destroy_bytecode_generator(gen);
