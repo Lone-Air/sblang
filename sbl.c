@@ -462,5 +462,8 @@ static bool execute_file(const char* input_file) {
     destroy_vm(vm);
     if (needs_cleanup) destroy_bytecode_generator(gen);
     
+    /* Clean up any static buffers */
+    vm_cleanup_static_buffers();
+    
     return true;
 }

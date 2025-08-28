@@ -408,6 +408,10 @@ void destroy_vm(VM* vm) {
                 free(vm->functions[i].name);
                 vm->functions[i].name = nullptr;
             }
+            if (vm->functions[i].source_code_file) {
+                free(vm->functions[i].source_code_file);
+                vm->functions[i].source_code_file = nullptr;
+            }
             if (vm->functions[i].locals) {
                 free(vm->functions[i].locals);
                 vm->functions[i].locals = nullptr;
@@ -1929,13 +1933,34 @@ static bool load_module(VM* vm, const char* module_name) {
 
 /* ========== Instruction Execution Functions ========== */
 
+// Static variables for function call tracing
+static char* old_sfp[256];
+static short sfbuffer_level = 0;
+
+/**
+ * Clean up static buffers used for function call tracing
+ */
+void vm_cleanup_static_buffers() {
+    // Clean up any remaining source filename copies
+    int freed_count = 0;
+    for (int i = 0; i < 256; i++) { // Clean entire array, not just up to sfbuffer_level
+        if (old_sfp[i]) {
+            free(old_sfp[i]);
+            old_sfp[i] = nullptr;
+            freed_count++;
+        }
+    }
+    sfbuffer_level = 0;
+    // printf("DEBUG: Freed %d static buffers\n", freed_count);
+}
+
 /**
  * Execute single instruction
  */
 VMError vm_execute_instruction(VM* vm) {
-    static char* old_sfp[256];
+    //static char* old_sfp[256];
     //static char* old_sfc[256];
-    static short sfbuffer_level = 0;
+    //static short sfbuffer_level = 0;
 
     if (!vm || vm->pc >= vm->instruction_count) {
         return VM_RUNTIME_ERROR;

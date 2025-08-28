@@ -351,4 +351,7 @@ extern void vm_gc_mark_roots(VM* vm);
 /* Check if pointer is GC-managed */
 extern bool is_gc_managed(VM* vm, void* ptr);
 
+/* Clean up static buffers */
+extern void vm_cleanup_static_buffers();
+
 #endif
