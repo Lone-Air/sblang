@@ -188,6 +188,7 @@ struct VM {
 
     int end_pc;
     bool error_from_native;
+    bool debug;
 };
 
 /* Native function binding structure */
@@ -200,6 +201,9 @@ typedef struct {
 
 /* Create VM instance */
 extern VM* create_vm();
+
+/* enable debug for VM instance */
+extern void enable_debug(VM* vm);
 
 /* Destroy VM instance, free all resources */
 extern void destroy_vm(VM* vm);
@@ -306,6 +310,9 @@ extern const char* vm_error_string(VMError error);
 
 /* Print stack contents (for debugging) */
 extern void vm_print_stack(VM* vm);
+
+/* Print vm information */
+extern void vm_print_status(VM* vm);
 
 /* Print error information */
 extern void vm_print_error(VM* vm);

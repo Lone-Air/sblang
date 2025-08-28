@@ -1,3 +1,7 @@
 function a(){
+    b = 0;
     return 1 / 0;
 }
+
+struct s1{ m1, m2 }
+s1i -> s1;

@@ -76,6 +76,8 @@ char* _no_skip_strtok(char* str, const char* delim){
 
 /* Forward declaration */
 static void free_variable_table_gc(VM* vm, VariableTable* table);
+static void free_variable_table_gc_safe(VM* vm, VariableTable* table);
+static bool mark_gc_object_as_freed_safe(VM* vm, void* ptr);
 
 /* Initialize variable table */
 static void init_variable_table(VariableTable* table) {
@@ -100,6 +102,44 @@ static void free_variable_table_gc(VM* vm, VariableTable* table) {
             free_value_gc(vm, table->vars[i].value);
         } else {
             free_value(table->vars[i].value);
+        }
+    }
+
+    if (table->vars) free(table->vars);
+    table->vars = nullptr;
+    table->count = 0;
+    table->capacity = 0;
+}
+
+/* Free variable table safely during VM destruction - mark GC objects as freed instead of freeing them */
+static void free_variable_table_gc_safe(VM* vm, VariableTable* table) {
+    if (!table) return;
+
+    /* Free each variable's name and mark GC objects as freed */
+    for (size_t i = 0; i < table->count; i++) {
+        if (table->vars[i].name) free(table->vars[i].name);
+        
+        // For GC-managed values, mark as freed instead of freeing
+        Value* value = &table->vars[i].value;
+        switch (value->type) {
+            case VAL_STRING:
+                if (value->as.string) {
+                    mark_gc_object_as_freed_safe(vm, value->as.string);
+                }
+                break;
+            case VAL_LIST:
+                if (value->as.list) {
+                    mark_gc_object_as_freed_safe(vm, value->as.list);
+                }
+                break;
+            case VAL_STRUCT_INSTANCE:
+                if (value->as.instance) {
+                    mark_gc_object_as_freed_safe(vm, value->as.instance);
+                }
+                break;
+            default:
+                // Other types don't need GC tracking
+                break;
         }
     }
 
@@ -244,10 +284,10 @@ void destroy_vm(VM* vm) {
     // Disable GC during cleanup to prevent interference
     vm->gc_enabled = false;
     
-    // Free dynamic stack and all values on it with GC awareness
+    // Free dynamic stack and all values on it without GC (since GC is disabled)
     if (vm->stack) {
         for (size_t i = 0; i < vm->stack_top; i++) {
-            free_value_gc(vm, vm->stack[i]);
+            free_value(vm->stack[i]);
         }
         free(vm->stack);
         vm->stack = nullptr;
@@ -259,18 +299,29 @@ void destroy_vm(VM* vm) {
         vm->call_stack = nullptr;
     }
 
-    // Free global and local variable tables with GC awareness
-    free_variable_table_gc(vm, &vm->globals);
+    // Free global and local variable tables without GC (since GC is disabled)
+    // Use a special version that marks GC objects as freed instead of freeing them
+    free_variable_table_gc_safe(vm, &vm->globals);
     if (vm->locals) {
-        free_variable_table_gc(vm, vm->locals);
+        free_variable_table_gc_safe(vm, vm->locals);
         free(vm->locals);
         vm->locals = nullptr;
     }
 
     // Now clean up any remaining GC objects that weren't freed by above operations
     GCObject* current = vm->gc_objects;
-    while (current) {
+    size_t gc_cleanup_count = 0;
+    size_t max_cleanup_count = vm->gc_object_count + 100; // Safety limit
+    
+    while (current && gc_cleanup_count < max_cleanup_count) {
         GCObject* next = current->next;
+        
+        // Validate next pointer is not pointing to current (circular reference)
+        if (next == current) {
+            // Break circular reference
+            current->next = nullptr;
+            next = nullptr;
+        }
         
         // Only free if not already marked as freed (data != nullptr)
         if (current->data) {
@@ -302,6 +353,7 @@ void destroy_vm(VM* vm) {
         
         free(current);
         current = next;
+        gc_cleanup_count++;
     }
     vm->gc_objects = nullptr;
     vm->gc_object_count = 0;
@@ -724,6 +776,9 @@ static bool remove_from_gc_if_managed(VM* vm, void* ptr) {
 static bool mark_gc_object_as_freed(VM* vm, void* ptr) {
     if (!vm || !ptr) return false;
     
+    // If VM is shutting down (GC disabled), don't try to mark objects
+    if (!vm->gc_enabled) return false;
+    
     GCObject* current = vm->gc_objects;
     while (current) {
         if (current->data == ptr) {
@@ -732,6 +787,29 @@ static bool mark_gc_object_as_freed(VM* vm, void* ptr) {
         }
         current = current->next;
     }
+    return false;
+}
+
+/**
+ * Safe version that actually frees the data and marks the GC object as freed
+ * Used during VM destruction to prevent double-free
+ */
+static bool mark_gc_object_as_freed_safe(VM* vm, void* ptr) {
+    if (!vm || !ptr) return false;
+    
+    GCObject* current = vm->gc_objects;
+    while (current) {
+        if (current->data == ptr) {
+            // Actually free the data now
+            free(current->data);
+            current->data = nullptr;  // Mark as already freed to prevent double-free in GC cleanup
+            return true;
+        }
+        current = current->next;
+    }
+    
+    // If not found in GC, free directly (it's not GC-managed)
+    free(ptr);
     return false;
 }
 
@@ -755,6 +833,12 @@ bool is_gc_managed(VM* vm, void* ptr) {
  */
 void free_value_gc(VM* vm, Value value) {
     if (!vm) {
+        free_value(value);
+        return;
+    }
+    
+    // If VM is shutting down, use non-GC free to avoid chain issues
+    if (!vm->gc_enabled) {
         free_value(value);
         return;
     }
@@ -867,8 +951,10 @@ void free_value(Value value) {
             }
             break;
         case VAL_FUNCTION:
-            free(value.as.function->source_code_file);
-            value.as.function->source_code_file = nullptr;
+            if (value.as.function && value.as.function->source_code_file) {
+                free(value.as.function->source_code_file);
+                value.as.function->source_code_file = nullptr;
+            }
         default:
             break; // Other types don't need special handling
     }
@@ -899,6 +985,16 @@ void vm_error(VM* vm, VMError error, const char* format, ...) {
     vm->error_message = _s_strdup(buffer);
 
     vm_print_error(vm);
+    if (vm->debug) {
+        vm_print_status(vm);
+    }
+}
+
+/**
+ * Enable debug for VM instace
+ */
+void enable_debug(VM* vm) {
+    vm->debug = true;
 }
 
 /**
@@ -1014,6 +1110,128 @@ void vm_print_stack(VM* vm) {
         }
     }
     printf("\n");
+}
+
+/**
+ * Print VM status
+ */
+void vm_print_status(VM* vm) {
+    if (!vm) return;
+    printf("=== Debugging outputs ===\n");
+
+    printf("\n=== Bytecode ===\n");
+    printf("Total instructions: %zu\n\n", vm->instruction_count);
+
+    for (size_t i = 0; i < vm->instruction_count; i++) {
+        Instruction* inst = &(vm->instructions[i]);
+        if (!inst) continue;
+
+        printf("%04zu: ", i);
+
+        switch (inst->opcode) {
+            case OP_NOP: printf("NOP"); break;
+            case OP_PUSH_NUM: printf("PUSH_NUM %.6f", inst->operand.num_value); break;
+            case OP_PUSH_STR: printf("PUSH_STR \"%s\"", inst->operand.str_value); break;
+            case OP_PUSH_IDENT: printf("PUSH_IDENT %s", inst->operand.str_value); break;
+            case OP_PUSH_TRUE: printf("PUSH_TRUE"); break;
+            case OP_PUSH_FALSE: printf("PUSH_FALSE"); break;
+            case OP_PUSH_NULL: printf("PUSH_nullptr"); break;
+            case OP_POP: printf("POP"); break;
+            case OP_DUP: printf("DUP"); break;
+            case OP_SWAP: printf("SWAP"); break;
+            case OP_ADD: printf("ADD"); break;
+            case OP_SUB: printf("SUB"); break;
+            case OP_MUL: printf("MUL"); break;
+            case OP_DIV: printf("DIV"); break;
+            case OP_MOD: printf("MOD"); break;
+            case OP_POW: printf("POW"); break;
+            case OP_BIT_AND: printf("BIT_AND"); break;
+            case OP_BIT_OR: printf("BIT_OR"); break;
+            case OP_BIT_XOR: printf("BIT_XOR"); break;
+            case OP_BIT_NOT: printf("BIT_NOT"); break;
+            case OP_BIT_LSHIFT: printf("BIT_LSHIFT"); break;
+            case OP_BIT_RSHIFT: printf("BIT_RSHIFT"); break;
+            case OP_LOGIC_AND: printf("LOGIC_AND"); break;
+            case OP_LOGIC_OR: printf("LOGIC_OR"); break;
+            case OP_LOGIC_NOT: printf("LOGIC_NOT"); break;
+            case OP_EQ: printf("EQ"); break;
+            case OP_NEQ: printf("NEQ"); break;
+            case OP_LT: printf("LT"); break;
+            case OP_GT: printf("GT"); break;
+            case OP_LEQ: printf("LEQ"); break;
+            case OP_GEQ: printf("GEQ"); break;
+            case OP_ASSIGN: printf("ASSIGN"); break;
+            case OP_LOAD_VAR: printf("LOAD_VAR %s", inst->operand.str_value); break;
+            case OP_STORE_VAR: printf("STORE_VAR %s", inst->operand.str_value); break;
+            case OP_LOAD_GLOBAL: printf("LOAD_GLOBAL %s", inst->operand.str_value); break;
+            case OP_STORE_GLOBAL: printf("STORE_GLOBAL %s", inst->operand.str_value); break;
+            case OP_JUMP: printf("JUMP %d", inst->operand.int_value); break;
+            case OP_JUMP_IF_FALSE: printf("JUMP_IF_FALSE %d", inst->operand.int_value); break;
+            case OP_JUMP_IF_TRUE: printf("JUMP_IF_TRUE %d", inst->operand.int_value); break;
+            case OP_CALL: printf("CALL %d", inst->operand.int_value); break;
+            case OP_RETURN: printf("RETURN"); break;
+            case OP_FUNC_START: printf("FUNC_START %s", inst->operand.str_value); break;
+            case OP_FUNC_END: printf("FUNC_END"); break;
+            case OP_BLOCK_START: printf("BLOCK_START"); break;
+            case OP_BLOCK_END: printf("BLOCK_END"); break;
+            case OP_LOAD_MODULE: printf("LOAD_MODULE %s", inst->operand.str_value); break;
+            case OP_STRUCT_DEF: printf("STRUCT_DEF %s", inst->operand.str_value); break;
+            case OP_STRUCT_NEW: printf("STRUCT_NEW %s", inst->operand.str_value); break;
+            case OP_MEMBER_ACCESS: printf("MEMBER_ACCESS %s", inst->operand.str_value); break;
+            case OP_MEMBER_STORE: printf("MEMBER_STORE %s", inst->operand.str_value); break;
+            case OP_LIST_NEW: printf("LIST_NEW %d", inst->operand.int_value); break;
+            case OP_LIST_ACCESS: printf("LIST_ACCESS"); break;
+            case OP_LIST_STORE: printf("LIST_STORE"); break;
+            case OP_LIST_PUSH: printf("LIST_PUSH"); break;
+            case OP_HALT: printf("HALT"); break;
+            default: printf("UNKNOWN_OP %d", inst->opcode); break;
+        }
+        printf("\n");
+    }
+
+    if (vm->functions) {
+        if (vm->function_count > 0) {
+            printf("\n=== Functions ===\n");
+            for (size_t i = 0; i < vm->function_count; i++) {
+                Function func = vm->functions[i];
+                printf("  %s (params: %zu, addr: %zu, from: %s)\n",
+                    func.name, func.param_count, func.start_addr, func.source_code_file);
+            }
+        }
+    }
+
+    if (vm->structs) {
+        if (vm->struct_count > 0) {
+            printf("\n=== Structs ===\n");
+            for (size_t i = 0; i <vm->struct_count; i++) {
+                Struct st = vm->structs[i];
+                printf("  %s { ", st.name);
+                for (size_t j = 0; j < st.member_count; j++) {
+                    char* member = st.members[i];
+                    if (member) printf("%s ", member);
+                }
+                printf("}\n");
+            }
+        }
+    }
+
+    if (vm->globals.count > 0) {
+        printf("\n=== Globals ===\n");
+        for (size_t i = 0; i < vm->globals.count; i++) {
+            char* global = vm->globals.vars[i].name;
+            if (global) printf("  %s\n", global);
+        }
+    }
+
+    if (vm->locals) {
+        if (vm->locals->count > 0) {
+            printf("\n=== Locals ===\n");
+            for (size_t i = 0; i < vm->locals->count; i++) {
+                char* local = vm->locals->vars[i].name;
+                if (local) printf("  %s\n", local);
+            }
+        }
+    }
 }
 
 /* ========== Source Tracking Functions ========== */
@@ -1566,8 +1784,12 @@ static bool load_source_file(VM* vm, const char* filename, const char* module_na
     
     /* Restore PC to continue main program execution */
 
-    free(vm->source_content);
-    free(vm->source_filename);
+    if (vm->source_content) {
+        free(vm->source_content);
+    }
+    if (vm->source_filename) {
+        free(vm->source_filename);
+    }
 
     vm->pc = saved_pc;
     vm->source_filename = old_fn;
@@ -2174,9 +2396,16 @@ VMError vm_execute_instruction(VM* vm) {
             Value func_name = vm_pop(vm);
 
             // For file level traceback
-            old_sfp[sfbuffer_level++] = vm->source_filename;
-            free(vm->source_content);
-            vm->source_content = read_file(vm->source_filename);
+            old_sfp[sfbuffer_level++] = vm->source_filename ? _s_strdup(vm->source_filename) : nullptr;
+            if (vm->source_content) {
+                free(vm->source_content);
+                vm->source_content = nullptr;
+            }
+            if (vm->source_filename) {
+                vm->source_content = read_file(vm->source_filename);
+            } else {
+                vm->source_content = nullptr;
+            }
 
             if (func_name.type == VAL_STRING) {
                 Value* func_val = vm_get_variable(vm, func_name.as.string);
@@ -2257,10 +2486,18 @@ VMError vm_execute_instruction(VM* vm) {
                     
                     // Jump to function body
                     vm->pc = func->start_addr;
-                    free(vm->source_filename);
-                    vm->source_filename = _s_strdup(func->source_code_file);
-                    free(vm->source_content);
-                    vm->source_content = read_file(func->source_code_file);
+                    if (func->source_code_file) {
+                        /*if (vm->source_filename) {
+                            free(vm->source_filename);
+                            vm->source_filename = nullptr;
+                        }*/
+                        vm->source_filename = _s_strdup(func->source_code_file);
+                        if (vm->source_content) {
+                            free(vm->source_content);
+                            vm->source_content = nullptr;
+                        }
+                        vm->source_content = read_file(func->source_code_file);
+                    }
                 }
                 else {
                     vm_error(vm, VM_TYPE_ERROR, "'%s' is not a function", func_name.as.string);
@@ -2306,10 +2543,20 @@ VMError vm_execute_instruction(VM* vm) {
                 vm_push(vm, return_value);
 
                 // Traceback file level
-                free(vm->source_filename);
+                if (vm->source_filename) {
+                    free(vm->source_filename);
+                    vm->source_filename = nullptr;
+                }
                 vm->source_filename = old_sfp[--sfbuffer_level];
-                free(vm->source_content);
-                vm->source_content = read_file(vm->source_filename);
+                if (vm->source_content) {
+                    free(vm->source_content);
+                    vm->source_content = nullptr;
+                }
+                if (vm->source_filename) {
+                    vm->source_content = read_file(vm->source_filename);
+                } else {
+                    vm->source_content = nullptr;
+                }
             }
             else {
                 return VM_OK; // Main program return

@@ -54,7 +54,7 @@ static bool dynarray_push(DynArray* arr, void* item) {
 }
 
 /* Get an element from a dynamic array */
-static void* dynarray_get(DynArray* arr, size_t index) {
+void* dynarray_get(DynArray* arr, size_t index) {
     if (!arr || index >= arr->count) return nullptr;
     return arr->items[index];
 }

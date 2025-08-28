@@ -16,6 +16,9 @@
 #include "error/error.h"
 #include "information.h"
 
+// Debug mode
+bool debugmode = false;
+
 /* Command line options structure */
 typedef struct {
     bool compile_only;      /* -c flag: compile only, don't execute */
@@ -143,24 +146,32 @@ static Options parse_arguments(int argc, char** argv) {
             /* Process flags */
             if (strcmp(argv[i], "-c") == 0) {
                 options.compile_only = true;
-            } else if (strcmp(argv[i], "-o") == 0) {
+            }
+            else if (strcmp(argv[i], "-o") == 0) {
                 if (i + 1 >= argc) {
                     fprintf(stderr, "Error: -o requires an argument\n");
                     exit(1);
                 }
                 options.output_file = _s_strdup(argv[++i]);
-            } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
+            }
+            else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
                 print_version();
                 exit(0);
-            } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            }
+            else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
                 print_usage(argv[0]);
                 exit(0);
-            } else {
+            }
+            else if (strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "--debug") == 0) {
+                debugmode = true;
+            }
+            else {
                 fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
                 print_usage(argv[0]);
                 exit(1);
             }
-        } else {
+        }
+        else {
             /* All remaining arguments are files */
             files_started = true;
             options.input_files[options.file_count++] = argv[i];
@@ -176,6 +187,7 @@ static void print_usage(const char* program_name) {
     printf("Create by Laman28 - Release under LGPL License\n");
     printf("Usage: %s [options] file1 [file2 ...]\n", program_name);
     printf("\nOptions:\n");
+    printf("  -d, --debug     Enable debugging for vm when it ocurred error\n");
     printf("  -c              Compile only (generate .sbc files)\n");
     printf("  -o <file>       Specify output file (only with single input file)\n");
     printf("  -v, --version   Show version information\n");
@@ -408,6 +420,9 @@ static bool execute_file(const char* input_file) {
     /* Create VM */
     //printf("DEBUG: About to create VM\n");
     VM* vm = create_vm();
+    if (debugmode)
+        enable_debug(vm);
+
     if (!vm) {
         fprintf(stderr, "Error: Failed to create VM\n");
         if (needs_cleanup) destroy_bytecode_generator(gen);

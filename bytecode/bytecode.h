@@ -234,4 +234,7 @@ extern BytecodeGenerator* load_bytecode(const char* filename);
 /* Check if a file is a valid bytecode file by checking magic value */
 extern bool is_valid_bytecode_file(const char* filename);
 
+/* Get an element from a dynamic array */
+extern void* dynarray_get(DynArray* arr, size_t index);
+
 #endif
