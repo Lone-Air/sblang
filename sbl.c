@@ -33,7 +33,6 @@ static bool execute_file(const char* input_file);
 static bool is_bytecode_file(const char* filename);
 static bool file_exists(const char* filename);
 static char* get_output_filename(const char* input_file);
-static char* read_file(const char* filename);
 
 int main(int argc, char** argv) {
     /* Parse command line arguments */
@@ -66,7 +65,7 @@ int main(int argc, char** argv) {
         
         /* Store current working directory */
         char cwd[1024];
-        if (getcwd(cwd, sizeof(cwd)) == NULL) {
+        if (getcwd(cwd, sizeof(cwd)) == nullptr) {
             fprintf(stderr, "Error: Failed to get current working directory\n");
             success = false;
             break;
@@ -74,7 +73,7 @@ int main(int argc, char** argv) {
         
         if (options.compile_only) {
             /* Compile only mode */
-            char* output_file = NULL;
+            char* output_file = nullptr;
             
             if (options.output_file && options.file_count == 1) {
                 output_file = options.output_file;
@@ -129,8 +128,8 @@ int main(int argc, char** argv) {
 static Options parse_arguments(int argc, char** argv) {
     Options options = {
         .compile_only = false,
-        .output_file = NULL,
-        .input_files = NULL,
+        .output_file = nullptr,
+        .input_files = nullptr,
         .file_count = 0
     };
     
@@ -227,30 +226,6 @@ static char* get_output_filename(const char* input_file) {
     return output;
 }
 
-/* Read entire file into memory */
-static char* read_file(const char* filename) {
-    FILE* file = fopen(filename, "r");
-    if (!file) {
-        return NULL;
-    }
-    
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-    
-    char* content = (char*)malloc(size + 1);
-    if (!content) {
-        fclose(file);
-        return NULL;
-    }
-    
-    fread(content, 1, size, file);
-    content[size] = '\0';
-    fclose(file);
-    
-    return content;
-}
-
 /* Compile source file to bytecode */
 static bool compile_file(const char* input_file, const char* output_file) {
     /* Read source file */
@@ -338,9 +313,9 @@ static bool compile_file(const char* input_file, const char* output_file) {
 
 /* Execute a file (source or bytecode) */
 static bool execute_file(const char* input_file) {
-    BytecodeGenerator* gen = NULL;
+    BytecodeGenerator* gen = nullptr;
     bool needs_cleanup = false;
-    char* source_content = NULL;
+    char* source_content = nullptr;
     
     /* Check if it's a bytecode file */
     if (is_bytecode_file(input_file)) {
@@ -359,7 +334,7 @@ static bool execute_file(const char* input_file) {
         }
         
         /* Store source content for error reporting */
-        source_content = strdup(source);
+        source_content = _s_strdup(source);
         
         /* Lexical analysis */
         _sbToken* tokens = _sbLexer(source);
@@ -444,7 +419,7 @@ static bool execute_file(const char* input_file) {
     if (source_content) {
         vm_set_source_info(vm, input_file, source_content);
         free(source_content);
-        source_content = NULL;
+        source_content = nullptr;
     } else {
         vm_set_bytecode_execution(vm, true);
     }
@@ -452,7 +427,7 @@ static bool execute_file(const char* input_file) {
     /* Load bytecode into VM */
     if (!vm_load_bytecode(vm, gen)) {
         fprintf(stderr, "Error: Failed to load bytecode into VM\n");
-        vm_print_error(vm);
+        //vm_print_error(vm);
         destroy_vm(vm);
         if (needs_cleanup) destroy_bytecode_generator(gen);
         return false;
@@ -462,7 +437,7 @@ static bool execute_file(const char* input_file) {
     VMError result = vm_execute(vm);
     
     if (result != VM_OK) {
-        vm_print_error(vm);
+        //vm_print_error(vm);
         destroy_vm(vm);
         if (needs_cleanup) destroy_bytecode_generator(gen);
         return false;

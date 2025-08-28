@@ -228,6 +228,8 @@ VM* create_vm() {
         register_builtin_functions(vm);
     }
 
+    vm->error_from_native = false;
+
     return vm;
 }
 
@@ -517,10 +519,11 @@ Value create_bool(bool b) {
 /**
  * Create function value
  */
-Value create_function(Function* func) {
+Value create_function(VM* vm, Function* func) {
     Value val;
     val.type = VAL_FUNCTION;
     val.as.function = func;
+    val.as.function->source_code_file = _s_strdup(vm->source_filename);
     return val;
 }
 
@@ -761,7 +764,8 @@ void free_value_gc(VM* vm, Value value) {
             // Mark as freed in GC tracking and free the string
             if (value.as.string && mark_gc_object_as_freed(vm, value.as.string)) {
                 free(value.as.string);
-            } else if (value.as.string) {
+            }
+            else if (value.as.string) {
                 // Not GC managed, free directly
                 free(value.as.string);
             }
@@ -776,7 +780,8 @@ void free_value_gc(VM* vm, Value value) {
                     free(value.as.list->items);
                 }
                 free(value.as.list);
-            } else if (value.as.list) {
+            }
+            else if (value.as.list) {
                 if (value.as.list->items) {
                     for (size_t i = 0; i < value.as.list->count; i++) {
                         free_value_gc(vm, value.as.list->items[i]);
@@ -796,7 +801,8 @@ void free_value_gc(VM* vm, Value value) {
                     free(value.as.instance->members);
                 }
                 free(value.as.instance);
-            } else if (value.as.instance) {
+            }
+            else if (value.as.instance) {
                 if (value.as.instance->members && value.as.instance->struct_def) {
                     for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
                         free_value_gc(vm, value.as.instance->members[i]);
@@ -806,6 +812,11 @@ void free_value_gc(VM* vm, Value value) {
                 free(value.as.instance);
             }
             break;
+        case VAL_FUNCTION:
+            if (value.as.function->source_code_file) {
+                free(value.as.function->source_code_file);
+                value.as.function->source_code_file = nullptr;
+            }
         default:
             // Other types don't allocate heap memory
             break;
@@ -855,6 +866,9 @@ void free_value(Value value) {
                 free(value.as.instance);
             }
             break;
+        case VAL_FUNCTION:
+            free(value.as.function->source_code_file);
+            value.as.function->source_code_file = nullptr;
         default:
             break; // Other types don't need special handling
     }
@@ -883,6 +897,8 @@ void vm_error(VM* vm, VMError error, const char* format, ...) {
     va_end(args);
 
     vm->error_message = _s_strdup(buffer);
+
+    vm_print_error(vm);
 }
 
 /**
@@ -917,7 +933,13 @@ void vm_print_error(VM* vm) {
 
     vm->pc--;
 
-    fprintf(stderr, "An error occurred during running\n");
+    fprintf(stderr, "An error occurred during running");
+    if (vm->error_from_native) {
+        fprintf(stderr, " (from native function)\n");
+    }
+    else {
+        fprintf(stderr, " (from source code)\n");
+    }
 
     fprintf(stderr, "%s", vm_error_string(vm->last_error));
     if (vm->error_message) {
@@ -1020,6 +1042,30 @@ void vm_set_source_info(VM* vm, const char* filename, const char* source_content
         vm->source_content = _s_strdup(source_content);
     }
     vm->is_bytecode_execution = false;
+}
+
+/* Read entire file into memory */
+char* read_file(const char* filename) {
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        return nullptr;
+    }
+
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    char* content = (char*)malloc(size + 1);
+    if (!content) {
+        fclose(file);
+        return nullptr;
+    }
+
+    fread(content, 1, size, file);
+    content[size] = '\0';
+    fclose(file);
+
+    return content;
 }
 
 /**
@@ -1274,7 +1320,8 @@ static bool load_bytecode_file(VM* vm, const char* filename, const char* module_
 
     VMError result = vm_execute(vm);
     if (result != VM_OK) {
-        vm_print_error(vm);
+        //vm_print_error(vm);
+        // Error report had moved into vm_error
     }
 
     /* Restore VM state */
@@ -1389,7 +1436,7 @@ static bool append_module_instructions(VM* vm, BytecodeGenerator* gen, size_t of
             vm->functions[dest_idx].locals = nullptr;
             
             // Register function as a global variable
-            Value func_val = create_function(&vm->functions[dest_idx]);
+            Value func_val = create_function(vm, &vm->functions[dest_idx]);
             vm_define_global(vm, vm->functions[dest_idx].name, func_val);
         }
         
@@ -1511,7 +1558,8 @@ static bool load_source_file(VM* vm, const char* filename, const char* module_na
     VMError result = vm_execute(vm);
 
     if (result != VM_OK) {
-        vm_print_error(vm);
+        //vm_print_error(vm);
+        // Error report had moved into vm_error
     }
 
     //printf("DEBUG: Module execution finished, restoring PC from %zu to %zu\n", vm->pc, saved_pc);
@@ -1663,6 +1711,10 @@ static bool load_module(VM* vm, const char* module_name) {
  * Execute single instruction
  */
 VMError vm_execute_instruction(VM* vm) {
+    static char* old_sfp[256];
+    //static char* old_sfc[256];
+    static short sfbuffer_level = 0;
+
     if (!vm || vm->pc >= vm->instruction_count) {
         return VM_RUNTIME_ERROR;
     }
@@ -2121,6 +2173,11 @@ VMError vm_execute_instruction(VM* vm) {
             // Get function name
             Value func_name = vm_pop(vm);
 
+            // For file level traceback
+            old_sfp[sfbuffer_level++] = vm->source_filename;
+            free(vm->source_content);
+            vm->source_content = read_file(vm->source_filename);
+
             if (func_name.type == VAL_STRING) {
                 Value* func_val = vm_get_variable(vm, func_name.as.string);
 
@@ -2135,12 +2192,16 @@ VMError vm_execute_instruction(VM* vm) {
 
                 if (func_val->type == VAL_NATIVE) {
                     // Call native function
+                    vm->error_from_native = true;
+
                     Value result = func_val->as.native(vm, args, arg_count);
                     vm_push(vm, result);
 
                     for (int i = 0; i < arg_count; i++) {
                         free_value_gc(vm, args[i]);
                     }
+
+                    vm->error_from_native = false;
                 }
                 else if (func_val->type == VAL_FUNCTION) {
                     // Call user-defined function
@@ -2196,6 +2257,10 @@ VMError vm_execute_instruction(VM* vm) {
                     
                     // Jump to function body
                     vm->pc = func->start_addr;
+                    free(vm->source_filename);
+                    vm->source_filename = _s_strdup(func->source_code_file);
+                    free(vm->source_content);
+                    vm->source_content = read_file(func->source_code_file);
                 }
                 else {
                     vm_error(vm, VM_TYPE_ERROR, "'%s' is not a function", func_name.as.string);
@@ -2239,6 +2304,12 @@ VMError vm_execute_instruction(VM* vm) {
                 
                 // Push return value back onto stack
                 vm_push(vm, return_value);
+
+                // Traceback file level
+                free(vm->source_filename);
+                vm->source_filename = old_sfp[--sfbuffer_level];
+                free(vm->source_content);
+                vm->source_content = read_file(vm->source_filename);
             }
             else {
                 return VM_OK; // Main program return
@@ -2522,6 +2593,8 @@ VMError vm_execute(VM* vm) {
         VMError error = vm_execute_instruction(vm);
         if (error != VM_OK) {
             vm->running = false;
+            //vm_print_error(vm);
+            // Error report had moved into vm_error
             return error;
         }
     }
@@ -2573,7 +2646,7 @@ bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen) {
             vm->functions[i].locals = nullptr;
             
             // Register function as a global variable
-            Value func_val = create_function(&vm->functions[i]);
+            Value func_val = create_function(vm, &vm->functions[i]);
             vm_define_global(vm, vm->functions[i].name, func_val);
         }
     }

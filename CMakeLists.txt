@@ -38,6 +38,11 @@ add_executable(sbl  # compiler
 )
 target_link_libraries(sbl m dl sblang)
 
+add_executable(bytecode_read  # compiler
+        test/test_bytecode.c
+)
+target_link_libraries(bytecode_read m dl sblang)
+
 # Native Math library
 add_library(math SHARED
         builtin/libraries/math.c

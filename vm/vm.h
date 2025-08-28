@@ -41,6 +41,9 @@ typedef struct {
     size_t param_count;     /* Parameter count */
     Value* locals;          /* Local variables array */
     size_t local_count;     /* Local variable count */
+
+    char* source_code_file; /* Function defined in which file (for traceback) */
+
 } Function;
 
 /* Struct definition */
@@ -184,6 +187,7 @@ struct VM {
     bool is_bytecode_execution;     /* Flag to indicate bytecode-only execution */
 
     int end_pc;
+    bool error_from_native;
 };
 
 /* Native function binding structure */
@@ -264,7 +268,7 @@ extern Value create_string(VM* vm, const char* str);
 extern Value create_bool(bool b);
 
 /* Create function value */
-extern Value create_function(Function* func);
+extern Value create_function(VM* vm, Function* func);
 
 /* Create native function value */
 extern Value create_native(NativeFunction func);
@@ -313,6 +317,9 @@ extern void vm_set_source_info(VM* vm, const char* filename, const char* source_
 
 /* Mark VM as executing bytecode only */
 extern void vm_set_bytecode_execution(VM* vm, bool is_bytecode);
+
+/* Read entire file into memory */
+extern char* read_file(const char* filename);
 
 /* ========== Garbage Collection Functions ========== */
 

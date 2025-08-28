@@ -1,0 +1,3 @@
+load error_module;
+
+print("Result: ", a(), EOL);

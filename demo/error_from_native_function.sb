@@ -1,0 +1,3 @@
+load math;
+
+print("Result: ", sin("x")); // TypeError
