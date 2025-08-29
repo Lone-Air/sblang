@@ -1169,8 +1169,8 @@ ASTNode* parse_postfix(Parser* parser) {
                         } else if (!match_token(parser, ")")) {
                             syntaxError(parser, "expected ',' or ')' in argument list");
                             free_ast(args);
-                            free_ast(func_call);
-                            free_ast(node);
+                            free_ast(func_call);  // This will free node as well
+                            return nullptr;
                         }
                     }
                     
@@ -1188,7 +1188,7 @@ ASTNode* parse_postfix(Parser* parser) {
                         syntaxError(parser, "invalid argument expression");
                         free_ast(args);
                         free_ast(func_call);
-                        free_ast(node);
+                        //free_ast(node);
                         return nullptr;
                     }
                 }
@@ -1199,8 +1199,7 @@ ASTNode* parse_postfix(Parser* parser) {
             } else {
                 unclosed_delimiter(parser, ")", open_paren->line, open_paren->pos);
                 free_ast(args);
-                free_ast(func_call);
-                free_ast(node);
+                free_ast(func_call);  // This will free node as well
                 return nullptr;
             }
             
@@ -1221,8 +1220,7 @@ ASTNode* parse_postfix(Parser* parser) {
             if (!list_access->data.list_access.index) {
                 // Lack of index syntax: x<lacked>
                 syntaxError(parser, "expected index expression");
-                free_ast(node);
-                free_ast(list_access);
+                free_ast(list_access);  // This will free node as well
                 return nullptr;
             }
 
@@ -1231,8 +1229,7 @@ ASTNode* parse_postfix(Parser* parser) {
             }
             else {
                 unclosed_delimiter(parser, "]", open_bracket->line, open_bracket->pos);
-                free_ast(node);
-                free_ast(list_access);
+                free_ast(list_access);  // This will free node as well
                 return nullptr;
             }
 

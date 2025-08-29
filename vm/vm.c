@@ -77,7 +77,8 @@ char* _no_skip_strtok(char* str, const char* delim){
 /* Forward declaration */
 static void free_variable_table_gc(VM* vm, VariableTable* table);
 static void free_variable_table_gc_safe(VM* vm, VariableTable* table);
-static bool mark_gc_object_as_freed_safe(VM* vm, void* ptr);
+static void gc_free_data_by_type(ValueType type, void* data);
+static bool gc_remove_and_free(VM* vm, void* ptr);
 
 /* Initialize variable table */
 static void init_variable_table(VariableTable* table) {
@@ -111,35 +112,20 @@ static void free_variable_table_gc(VM* vm, VariableTable* table) {
     table->capacity = 0;
 }
 
-/* Free variable table safely during VM destruction - mark GC objects as freed instead of freeing them */
+/* Free variable table safely during VM destruction - don't free GC objects since they're handled separately */
 static void free_variable_table_gc_safe(VM* vm, VariableTable* table) {
     if (!table) return;
 
-    /* Free each variable's name and mark GC objects as freed */
+    /* Free each variable's name but NOT the GC-managed values (handled by GC cleanup) */
     for (size_t i = 0; i < table->count; i++) {
         if (table->vars[i].name) free(table->vars[i].name);
         
-        // For GC-managed values, mark as freed instead of freeing
+        // Don't free GC-managed values here - they will be freed by GC cleanup
+        // Only free non-GC managed types like function source file paths
         Value* value = &table->vars[i].value;
-        switch (value->type) {
-            case VAL_STRING:
-                if (value->as.string) {
-                    mark_gc_object_as_freed_safe(vm, value->as.string);
-                }
-                break;
-            case VAL_LIST:
-                if (value->as.list) {
-                    mark_gc_object_as_freed_safe(vm, value->as.list);
-                }
-                break;
-            case VAL_STRUCT_INSTANCE:
-                if (value->as.instance) {
-                    mark_gc_object_as_freed_safe(vm, value->as.instance);
-                }
-                break;
-            default:
-                // Other types don't need GC tracking
-                break;
+        if (value->type == VAL_FUNCTION && value->as.function && value->as.function->source_code_file) {
+            free(value->as.function->source_code_file);
+            value->as.function->source_code_file = nullptr;
         }
     }
 
@@ -284,10 +270,32 @@ void destroy_vm(VM* vm) {
     // Disable GC during cleanup to prevent interference
     vm->gc_enabled = false;
     
-    // Free dynamic stack and all values on it without GC (since GC is disabled)
+    // Clean up all GC objects first, before freeing variable tables
+    GCObject* current = vm->gc_objects;
+    while (current) {
+        GCObject* next = current->next;
+        
+        // Free the actual data based on type
+        if (current->data) {
+            gc_free_data_by_type(current->type, current->data);
+        }
+        
+        free(current);
+        current = next;
+    }
+    vm->gc_objects = nullptr;
+    vm->gc_object_count = 0;
+    vm->gc_bytes_allocated = 0;
+    
+    // Free dynamic stack without GC (since GC is disabled and cleaned)
     if (vm->stack) {
         for (size_t i = 0; i < vm->stack_top; i++) {
-            free_value(vm->stack[i]);
+            // Only free non-GC managed parts since GC objects are already freed
+            Value* val = &vm->stack[i];
+            if (val->type == VAL_FUNCTION && val->as.function && val->as.function->source_code_file) {
+                free(val->as.function->source_code_file);
+                val->as.function->source_code_file = nullptr;
+            }
         }
         free(vm->stack);
         vm->stack = nullptr;
@@ -299,65 +307,13 @@ void destroy_vm(VM* vm) {
         vm->call_stack = nullptr;
     }
 
-    // Free global and local variable tables without GC (since GC is disabled)
-    // Use a special version that marks GC objects as freed instead of freeing them
+    // Free global and local variable tables (GC objects already freed above)
     free_variable_table_gc_safe(vm, &vm->globals);
     if (vm->locals) {
         free_variable_table_gc_safe(vm, vm->locals);
         free(vm->locals);
         vm->locals = nullptr;
     }
-
-    // Now clean up any remaining GC objects that weren't freed by above operations
-    GCObject* current = vm->gc_objects;
-    size_t gc_cleanup_count = 0;
-    size_t max_cleanup_count = vm->gc_object_count + 100; // Safety limit
-    
-    while (current && gc_cleanup_count < max_cleanup_count) {
-        GCObject* next = current->next;
-        
-        // Validate next pointer is not pointing to current (circular reference)
-        if (next == current) {
-            // Break circular reference
-            current->next = nullptr;
-            next = nullptr;
-        }
-        
-        // Only free if not already marked as freed (data != nullptr)
-        if (current->data) {
-            switch (current->type) {
-                case VAL_STRING:
-                    free(current->data);
-                    break;
-                case VAL_LIST: {
-                    List* list = (List*)current->data;
-                    if (list->items) {
-                        free(list->items);
-                    }
-                    free(list);
-                    break;
-                }
-                case VAL_STRUCT_INSTANCE: {
-                    StructInstance* instance = (StructInstance*)current->data;
-                    if (instance->members) {
-                        free(instance->members);
-                    }
-                    free(instance);
-                    break;
-                }
-                default:
-                    free(current->data);
-                    break;
-            }
-        }
-        
-        free(current);
-        current = next;
-        gc_cleanup_count++;
-    }
-    vm->gc_objects = nullptr;
-    vm->gc_object_count = 0;
-    vm->gc_bytes_allocated = 0;
 
     // Free loaded shared libraries
     if (vm->loaded_libs) {
@@ -744,17 +700,17 @@ Value copy_value(VM* vm, Value value) {
 }
 
 /**
- * Check if pointer is GC-managed and remove it from GC tracking if found
- * Returns true if the object was found and removed, false otherwise
+ * Remove and free a GC object from tracking
+ * This is used when we want to immediately free an object
  */
-static bool remove_from_gc_if_managed(VM* vm, void* ptr) {
-    if (!vm || !ptr) return false;
+static bool gc_remove_and_free(VM* vm, void* ptr) {
+    if (!vm || !ptr || !vm->gc_enabled) return false;
     
     GCObject* prev = nullptr;
     GCObject* current = vm->gc_objects;
     
     while (current) {
-        if (current->data == ptr) {
+        if (current->data == ptr && current->data != nullptr) {
             // Remove from linked list
             if (prev) {
                 prev->next = current->next;
@@ -762,7 +718,10 @@ static bool remove_from_gc_if_managed(VM* vm, void* ptr) {
                 vm->gc_objects = current->next;
             }
             
-            // Free the GC object header but not the data (caller will handle data)
+            // Free the actual data based on type
+            gc_free_data_by_type(current->type, current->data);
+            
+            // Free the GC object header
             free(current);
             vm->gc_object_count--;
             return true;
@@ -774,47 +733,35 @@ static bool remove_from_gc_if_managed(VM* vm, void* ptr) {
 }
 
 /**
- * Mark object as freed by nulling its data pointer in GC tracking
- * This prevents double-free while keeping the GC object in the list for cleanup
+ * Free data based on its type
  */
-static bool mark_gc_object_as_freed(VM* vm, void* ptr) {
-    if (!vm || !ptr) return false;
+static void gc_free_data_by_type(ValueType type, void* data) {
+    if (!data) return;
     
-    // If VM is shutting down (GC disabled), don't try to mark objects
-    if (!vm->gc_enabled) return false;
-    
-    GCObject* current = vm->gc_objects;
-    while (current) {
-        if (current->data == ptr) {
-            current->data = nullptr;  // Mark as already freed
-            return true;
+    switch (type) {
+        case VAL_STRING:
+            free(data);
+            break;
+        case VAL_LIST: {
+            List* list = (List*)data;
+            if (list->items) {
+                free(list->items);
+            }
+            free(list);
+            break;
         }
-        current = current->next;
-    }
-    return false;
-}
-
-/**
- * Safe version that actually frees the data and marks the GC object as freed
- * Used during VM destruction to prevent double-free
- */
-static bool mark_gc_object_as_freed_safe(VM* vm, void* ptr) {
-    if (!vm || !ptr) return false;
-    
-    GCObject* current = vm->gc_objects;
-    while (current) {
-        if (current->data == ptr) {
-            // Actually free the data now
-            free(current->data);
-            current->data = nullptr;  // Mark as already freed to prevent double-free in GC cleanup
-            return true;
+        case VAL_STRUCT_INSTANCE: {
+            StructInstance* instance = (StructInstance*)data;
+            if (instance->members) {
+                free(instance->members);
+            }
+            free(instance);
+            break;
         }
-        current = current->next;
+        default:
+            free(data);
+            break;
     }
-    
-    // If not found in GC, free directly (it's not GC-managed)
-    free(ptr);
-    return false;
 }
 
 /**
@@ -836,77 +783,47 @@ bool is_gc_managed(VM* vm, void* ptr) {
  * This function properly handles GC managed objects
  */
 void free_value_gc(VM* vm, Value value) {
-    if (!vm) {
-        free_value(value);
-        return;
-    }
-    
-    // If VM is shutting down, use non-GC free to avoid chain issues
-    if (!vm->gc_enabled) {
+    if (!vm || !vm->gc_enabled) {
         free_value(value);
         return;
     }
     
     switch (value.type) {
         case VAL_STRING:
-            // Mark as freed in GC tracking and free the string
-            if (value.as.string && mark_gc_object_as_freed(vm, value.as.string)) {
-                free(value.as.string);
-            }
-            else if (value.as.string) {
-                // Not GC managed, free directly
-                free(value.as.string);
+            if (value.as.string) {
+                gc_remove_and_free(vm, value.as.string);
             }
             break;
         case VAL_LIST:
-            if (value.as.list && mark_gc_object_as_freed(vm, value.as.list)) {
-                if (value.as.list->items) {
-                    // Free all elements in the list
-                    for (size_t i = 0; i < value.as.list->count; i++) {
-                        free_value_gc(vm, value.as.list->items[i]);
-                    }
-                    free(value.as.list->items);
-                }
-                free(value.as.list);
-            }
-            else if (value.as.list) {
+            if (value.as.list) {
+                // First free all elements recursively
                 if (value.as.list->items) {
                     for (size_t i = 0; i < value.as.list->count; i++) {
                         free_value_gc(vm, value.as.list->items[i]);
                     }
-                    free(value.as.list->items);
                 }
-                free(value.as.list);
+                gc_remove_and_free(vm, value.as.list);
             }
             break;
         case VAL_STRUCT_INSTANCE:
-            if (value.as.instance && mark_gc_object_as_freed(vm, value.as.instance)) {
-                if (value.as.instance->members && value.as.instance->struct_def) {
-                    // Free all members of struct instance
-                    for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
-                        free_value_gc(vm, value.as.instance->members[i]);
-                    }
-                    free(value.as.instance->members);
-                }
-                free(value.as.instance);
-            }
-            else if (value.as.instance) {
+            if (value.as.instance) {
+                // First free all members recursively
                 if (value.as.instance->members && value.as.instance->struct_def) {
                     for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
                         free_value_gc(vm, value.as.instance->members[i]);
                     }
-                    free(value.as.instance->members);
                 }
-                free(value.as.instance);
+                gc_remove_and_free(vm, value.as.instance);
             }
             break;
         case VAL_FUNCTION:
-            if (value.as.function->source_code_file) {
+            if (value.as.function && value.as.function->source_code_file) {
                 free(value.as.function->source_code_file);
                 value.as.function->source_code_file = nullptr;
             }
+            break;
         default:
-            // Other types don't allocate heap memory
+            // Other types don't allocate heap memory or are not GC-managed
             break;
     }
 }
@@ -1211,7 +1128,7 @@ void vm_print_status(VM* vm) {
                 Struct st = vm->structs[i];
                 printf("  %s { ", st.name);
                 for (size_t j = 0; j < st.member_count; j++) {
-                    char* member = st.members[i];
+                    char* member = st.members[j];
                     if (member) printf("%s ", member);
                 }
                 printf("}\n");
@@ -2557,7 +2474,7 @@ VMError vm_execute_instruction(VM* vm) {
 
                 // Clean up current local variables and restore previous scope
                 if (vm->locals) {
-                    free_variable_table(vm->locals);
+                    free_variable_table_gc(vm, vm->locals);
                     free(vm->locals);
                 }
                 
@@ -2615,10 +2532,55 @@ VMError vm_execute_instruction(VM* vm) {
             break;
         }
 
-        case OP_STRUCT_DEF: {
-            // Struct definition (skip)
+        case OP_STRUCT_DEF:
+            // Register struct
+            const char* struct_name = inst->operand.str_value;
+
+            Value member_count = vm_pop(vm);
+            if (member_count.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "Invalid instruction during running when creating a struct (invalid member count)");
+                return VM_TYPE_ERROR;
+            }
+
+            char** members = malloc((int)member_count.as.number * sizeof(char*));
+            Value _s;
+
+            for (int i = 0; i < member_count.as.number; i++) {
+                _s = vm_pop(vm);
+                if (_s.type != VAL_STRING) {
+                    vm_error(vm, VM_TYPE_ERROR, "Invalid instruction during running when creating a struct (invalid identifier type)");
+                    return VM_TYPE_ERROR;
+                }
+                members[i] = _s_strdup(_s.as.string);
+            }
+
+            for (int i = 0; i < vm->struct_count; i++) {
+                if (strcmp(struct_name, vm->structs[i].name) == 0) {
+                    // Overloaded structures
+                    free(vm->structs[i].name);
+                    vm->structs[i].name = _s_strdup(struct_name);
+
+                    for (int j = 0; j < vm->structs[i].member_count; j++) {
+                        free(vm->structs[i].members[j]);
+                    }
+                    free(vm->structs[i].members);
+
+                    vm->structs[i].member_count = member_count.as.number;
+                    vm->structs[i].members = members;
+                    goto end_of_create_struct;
+                }
+            }
+
+            // New struct
+            vm->struct_count++;
+            vm->structs = realloc(vm->structs, (vm->struct_count + 1) * sizeof(Struct));
+            vm->structs[vm->struct_count - 1].name = _s_strdup(struct_name);
+            vm->structs[vm->struct_count - 1].member_count = member_count.as.number;
+            vm->structs[vm->struct_count - 1].members = members;
+
+end_of_create_struct:
+
             break;
-        }
 
         case OP_STRUCT_NEW: {
             // Create struct instance
@@ -2982,15 +2944,22 @@ bool vm_load_from_file(VM* vm, const char* filename) {
 /* ========== Garbage Collection Functions ========== */
 
 /**
- * Garbage collection (mark-and-sweep algorithm)
+ * Improved garbage collection with better cycle detection
  */
 void vm_gc_collect(VM* vm) {
-    if (!vm || !vm->gc_enabled) return;
+    if (!vm || !vm->gc_enabled || vm->gc_object_count == 0) return;
     
-    // Phase 1: Mark all reachable objects
+    // Phase 1: Reset all mark flags
+    GCObject* obj = vm->gc_objects;
+    while (obj) {
+        obj->marked = false;
+        obj = obj->next;
+    }
+    
+    // Phase 2: Mark all reachable objects from roots
     vm_gc_mark_roots(vm);
     
-    // Phase 2: Sweep unmarked objects
+    // Phase 3: Sweep unmarked objects
     vm_gc_sweep(vm);
     
     // Update threshold for next GC
@@ -3001,10 +2970,10 @@ void vm_gc_collect(VM* vm) {
 }
 
 /**
- * Mark live objects
+ * Improved mark function with cycle detection
  */
 void vm_gc_mark(VM* vm, Value value) {
-    if (!vm) return;
+    if (!vm || !vm->gc_objects) return;
     
     // Find the GC object for this value and mark it
     GCObject* obj = vm->gc_objects;
@@ -3034,16 +3003,17 @@ void vm_gc_mark(VM* vm, Value value) {
         if (should_mark && !obj->marked) {
             obj->marked = true;
             
-            // Recursively mark referenced objects
-            if (value.type == VAL_LIST && value.as.list) {
+            // Mark referenced objects (with cycle protection via marked flag)
+            if (value.type == VAL_LIST && value.as.list && value.as.list->items) {
                 for (size_t i = 0; i < value.as.list->count; i++) {
                     vm_gc_mark(vm, value.as.list->items[i]);
                 }
-            } else if (value.type == VAL_STRUCT_INSTANCE && value.as.instance) {
+            } else if (value.type == VAL_STRUCT_INSTANCE && value.as.instance && value.as.instance->members) {
                 for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {
                     vm_gc_mark(vm, value.as.instance->members[i]);
                 }
             }
+            break; // Object found and marked, exit search loop
         }
         
         obj = obj->next;
@@ -3051,12 +3021,14 @@ void vm_gc_mark(VM* vm, Value value) {
 }
 
 /**
- * Sweep unmarked objects
+ * Improved sweep function with proper memory management
  */
 void vm_gc_sweep(VM* vm) {
     if (!vm) return;
     
     GCObject** current = &vm->gc_objects;
+    size_t freed_count = 0;
+    size_t freed_bytes = 0;
     
     while (*current) {
         if (!(*current)->marked) {
@@ -3065,38 +3037,36 @@ void vm_gc_sweep(VM* vm) {
             *current = to_free->next;
             
             // Free the actual data based on type
-            switch (to_free->type) {
-                case VAL_STRING:
-                    free(to_free->data);
-                    break;
-                case VAL_LIST: {
-                    List* list = (List*)to_free->data;
-                    if (list->items) {
-                        free(list->items);
-                    }
-                    free(list);
-                    break;
+            if (to_free->data) {
+                gc_free_data_by_type(to_free->type, to_free->data);
+                freed_bytes += sizeof(GCObject);
+                switch (to_free->type) {
+                    case VAL_STRING:
+                        freed_bytes += strlen((char*)to_free->data) + 1;
+                        break;
+                    case VAL_LIST:
+                        freed_bytes += sizeof(List);
+                        break;
+                    case VAL_STRUCT_INSTANCE:
+                        freed_bytes += sizeof(StructInstance);
+                        break;
+                    default:
+                        break;
                 }
-                case VAL_STRUCT_INSTANCE: {
-                    StructInstance* instance = (StructInstance*)to_free->data;
-                    if (instance->members) {
-                        free(instance->members);
-                    }
-                    free(instance);
-                    break;
-                }
-                default:
-                    break;
             }
             
             free(to_free);
-            vm->gc_object_count--;
+            freed_count++;
         } else {
-            // Object is marked, unmark it for next collection
+            // Object is marked, unmark it for next collection and move to next
             (*current)->marked = false;
             current = &(*current)->next;
         }
     }
+    
+    vm->gc_object_count -= freed_count;
+    vm->gc_bytes_allocated = (vm->gc_bytes_allocated > freed_bytes) ? 
+                            (vm->gc_bytes_allocated - freed_bytes) : 0;
 }
 
 /**

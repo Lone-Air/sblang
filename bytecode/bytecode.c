@@ -703,13 +703,17 @@ bool generate_struct(BytecodeGenerator* gen, ASTNode* node) {
     
     DynArray* member_list = create_dynarray();
     if (!member_list) return false;
-    
+
+    int member_count = 0;
+
     if (members && members->type == _sbMEMBER_LIST) {
         for (int i = 0; i < members->data.list.count; i++) {
             ASTNode* member = members->data.list.items[i];
             if (member->type == _sbIDENTIFIER) {
                 char* member_name = _s_strdup(member->data.str_value);
                 dynarray_push(member_list, member_name);
+                emit_instruction_with_str(gen, OP_PUSH_STR, member->data.str_value);
+                member_count++;
             }
         }
     }
@@ -719,7 +723,8 @@ bool generate_struct(BytecodeGenerator* gen, ASTNode* node) {
         destroy_dynarray(member_list);
         return false;
     }
-    
+
+    emit_instruction_with_num(gen, OP_PUSH_NUM, member_count);
     emit_instruction_with_str(gen, OP_STRUCT_DEF, name->data.str_value);
     
     return true;

@@ -1,0 +1,4 @@
+struct s1 { m }
+
+s0i -> s1;
+s0i.m = 1;

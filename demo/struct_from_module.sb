@@ -1,0 +1,7 @@
+load struct_test;
+
+s1i -> s1;
+s1i.m = 5;
+
+print("s0i: ", s0i.m, EOL);
+print("s1i: ", s1i.m, EOL);

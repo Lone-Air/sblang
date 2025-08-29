@@ -1,3 +1,5 @@
+struct s2{ m1, m2 }
+
 load error_module;
 
 print("Result: ", a(), EOL);

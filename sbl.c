@@ -352,6 +352,7 @@ static bool execute_file(const char* input_file) {
         _sbToken* tokens = _sbLexer(source);
         if (!tokens) {
             fprintf(stderr, "Error: Failed to tokenize '%s'\n", input_file);
+            if (source_content) free(source_content);
             free(source);
             return false;
         }
@@ -361,6 +362,7 @@ static bool execute_file(const char* input_file) {
         if (!parser) {
             fprintf(stderr, "Error: Failed to create parser\n");
             freeTkList(tokens);
+            if (source_content) free(source_content);
             free(source);
             return false;
         }
@@ -375,6 +377,7 @@ static bool execute_file(const char* input_file) {
             }
             destroy_tkstate(parser);
             freeTkList(tokens);
+            if (source_content) free(source_content);
             free(source);
             return false;
         }
@@ -386,6 +389,7 @@ static bool execute_file(const char* input_file) {
             free_ast(ast);
             destroy_tkstate(parser);
             freeTkList(tokens);
+            if (source_content) free(source_content);
             free(source);
             return false;
         }
@@ -399,6 +403,7 @@ static bool execute_file(const char* input_file) {
             free_ast(ast);
             destroy_tkstate(parser);
             freeTkList(tokens);
+            if (source_content) free(source_content);
             free(source);
             return false;
         }
