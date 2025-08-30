@@ -1002,7 +1002,7 @@ void vm_print_status(_sbVM* vm) {
             case OP_PUSH_IDENT: printf("PUSH_IDENT %s", inst->operand.str_value); break;
             case OP_PUSH_TRUE: printf("PUSH_TRUE"); break;
             case OP_PUSH_FALSE: printf("PUSH_FALSE"); break;
-            case OP_PUSH_NULL: printf("PUSH_nullptr"); break;
+            case OP_PUSH_NULL: printf("PUSH_NULL"); break;
             case OP_POP: printf("POP"); break;
             case OP_DUP: printf("DUP"); break;
             case OP_SWAP: printf("SWAP"); break;
