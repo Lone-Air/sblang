@@ -11,8 +11,10 @@
 #include "../bytecode/bytecode.h"
 #include <stdbool.h>
 
-#define VM_INITIAL_STACK_SIZE 1024      /* Initial operand stack size */
-#define VM_INITIAL_CALL_STACK_SIZE 256  /* Initial call stack depth */
+#define VM_INITIAL_STACK_SIZE 512      /* Initial operand stack size */
+#define VM_INITIAL_CALL_STACK_SIZE 1024  /* Initial call stack depth */
+#define VM_INITIAL_SOURCE_FILE_PATH_STORAGE_SIZE 128  /* Initial sfp depth */
+#define VM_INITIAL_SOURCE_FILE_PATH_TRACEBACK_SIZE 256  /* Initial sf_traceback depth */
 
 /* Value type enumeration */
 typedef enum {
@@ -25,91 +27,91 @@ typedef enum {
     VAL_STRUCT,             /* Struct definition type */
     VAL_STRUCT_INSTANCE,    /* Struct instance type */
     VAL_LIST                /* List type */
-} ValueType;
+} _sbValueType;
 
 /* Forward declarations */
-typedef struct Value Value;
-typedef struct VM VM;
+typedef struct _sbValue _sbValue;
+typedef struct _sbVM _sbVM;
 
 /* Native function pointer type */
-typedef Value (*NativeFunction)(VM* vm, Value* args, int arg_count);
+typedef _sbValue (*NativeFunction)(_sbVM* vm, _sbValue* args, int arg_count);
 
 /* Function structure */
 typedef struct {
     char* name;             /* Function name */
     size_t start_addr;      /* Function start address */
     size_t param_count;     /* Parameter count */
-    Value* locals;          /* Local variables array */
+    _sbValue* locals;          /* Local variables array */
     size_t local_count;     /* Local variable count */
 
     char* source_code_file; /* Function defined in which file (for traceback) */
 
-} Function;
+} _sbVFunction;
 
 /* Struct definition */
 typedef struct {
     char* name;             /* Struct name */
     char** members;         /* Member names array */
     size_t member_count;    /* Member count */
-} Struct;
+} _sbVStruct;
 
 /* Struct instance */
 typedef struct {
-    Struct* struct_def;     /* Struct definition */
-    Value* members;         /* Member values array */
-} StructInstance;
+    _sbVStruct* struct_def;     /* Struct definition */
+    _sbValue* members;         /* Member values array */
+} _sbVStructInstance;
 
 /* List structure */
 typedef struct {
-    Value* items;           /* Elements array */
+    _sbValue* items;           /* Elements array */
     size_t count;           /* Current element count */
     size_t capacity;        /* Capacity */
-} List;
+} _sbVList;
 
 /* GC object header for tracking allocated objects */
-typedef struct GCObject {
-    struct GCObject* next;      /* Next object in linked list */
+typedef struct _sbGCObject {
+    struct _sbGCObject* next;      /* Next object in linked list */
     bool marked;                /* Mark flag for GC */
-    ValueType type;             /* Type of the object */
+    _sbValueType type;             /* Type of the object */
     void* data;                 /* Pointer to the actual data */
-} GCObject;
+} _sbGCObject;
 
 /* Value structure - supports multiple data types */
-struct Value {
-    ValueType type;         /* Value type */
+struct _sbValue {
+    _sbValueType type;         /* Value type */
     union {
         double number;              /* Numeric value */
         char* string;               /* String value */
         bool boolean;               /* Boolean value */
-        Function* function;         /* Function pointer */
+        _sbVFunction* function;         /* Function pointer */
         NativeFunction native;      /* Native function pointer */
-        Struct* struct_def;         /* Struct definition */
-        StructInstance* instance;   /* Struct instance */
-        List* list;                 /* List pointer */
+        _sbVStruct* struct_def;         /* Struct definition */
+        _sbVStructInstance* instance;   /* Struct instance */
+        _sbVList* list;                 /* List pointer */
     } as;
 };
 
 /* Call frame structure */
 typedef struct {
-    Function* function;     /* Current function */
+    _sbVFunction* function;     /* Current function */
     size_t return_addr;     /* Return address */
-    Value* locals;          /* Local variables */
+    _sbValue* locals;          /* Local variables */
     size_t local_count;     /* Local variable count */
     size_t stack_base;      /* Stack base address */
-} CallFrame;
+} _sbCallFrame;
 
 /* Variable structure */
 typedef struct {
     char* name;             /* Variable name */
-    Value value;            /* Variable value */
-} Variable;
+    _sbValue value;            /* Variable value */
+} _sbVariable;
 
 /* Variable table */
 typedef struct {
-    Variable* vars;         /* Variables array */
+    _sbVariable* vars;         /* Variables array */
     size_t count;           /* Variable count */
     size_t capacity;        /* Capacity */
-} VariableTable;
+} _sbVariableTable;
 
 /* VM error type enumeration */
 typedef enum {
@@ -134,37 +136,37 @@ typedef enum {
 typedef struct {
     void* handle;                   /* Dynamic library handle */
     char* name;                     /* Library name */
-} LoadedLibrary;
+} _sbLoadedLibrary;
 
 /* Main VM structure */
-struct VM {
+struct _sbVM {
     /* Instruction related */
     Instruction* instructions;      /* Instructions array */
     size_t instruction_count;       /* Instruction count */
     size_t pc;                      /* Program counter */
 
     /* Operand stack */
-    Value* stack;                   /* Dynamic operand stack */
+    _sbValue* stack;                   /* Dynamic operand stack */
     size_t stack_top;               /* Stack top pointer */
     size_t stack_capacity;          /* Operand stack capacity */
 
     /* Call stack */
-    CallFrame* call_stack;          /* Dynamic call stack */
+    _sbCallFrame* call_stack;          /* Dynamic call stack */
     size_t call_depth;              /* Call depth */
     size_t call_capacity;           /* Call stack capacity */
 
     /* Variable table */
-    VariableTable globals;          /* Global variable table */
-    VariableTable* locals;          /* Current local variable table */
+    _sbVariableTable globals;          /* Global variable table */
+    _sbVariableTable* locals;          /* Current local variable table */
 
     /* Functions and structs */
-    Function* functions;            /* Function table */
+    _sbVFunction* functions;            /* Function table */
     size_t function_count;          /* Function count */
-    Struct* structs;                /* Struct table */
+    _sbVStruct* structs;                /* Struct table */
     size_t struct_count;            /* Struct count */
 
     /* Loaded shared libraries */
-    LoadedLibrary* loaded_libs;    /* Loaded shared libraries array */
+    _sbLoadedLibrary* loaded_libs;    /* Loaded shared libraries array */
     size_t loaded_lib_count;        /* Loaded shared libraries count */
 
     /* Error handling */
@@ -176,7 +178,7 @@ struct VM {
     bool gc_enabled;                /* Garbage collection flag */
     
     /* Garbage collection */
-    GCObject* gc_objects;           /* Linked list of all allocated objects */
+    _sbGCObject* gc_objects;           /* Linked list of all allocated objects */
     size_t gc_object_count;         /* Number of allocated objects */
     size_t gc_threshold;            /* GC trigger threshold */
     size_t gc_bytes_allocated;      /* Total bytes allocated */
@@ -186,7 +188,19 @@ struct VM {
     char* source_content;           /* Source content for error snippets */
     bool is_bytecode_execution;     /* Flag to indicate bytecode-only execution */
 
-    int end_pc;
+    /* File name storage */
+    char** sfp;
+    int* bc;
+    int* sf_traceback;
+
+    size_t sf_traceback_count;
+    size_t sf_traceback_capacity;
+    size_t sfp_count;
+    size_t sfp_capacity;
+    size_t bc_count;
+    size_t bc_capacity;
+
+    size_t end_pc;
     bool error_from_native;
     bool debug;
 };
@@ -195,135 +209,135 @@ struct VM {
 typedef struct {
     char* name;             /* Function name */
     NativeFunction func;    /* Function pointer */
-} NativeBinding;
+} _sbNativeBinding;
 
 /* ========== VM Management Functions ========== */
 
 /* Create VM instance */
-extern VM* create_vm();
+extern _sbVM* create_vm();
 
 /* enable debug for VM instance */
-extern void enable_debug(VM* vm);
+extern void enable_debug(_sbVM* vm);
 
 /* Destroy VM instance, free all resources */
-extern void destroy_vm(VM* vm);
+extern void destroy_vm(_sbVM* vm);
 
 /* ========== Stack Operation Functions ========== */
 
 /* Push value onto stack */
-extern void vm_push(VM* vm, Value value);
+extern void vm_push(_sbVM* vm, _sbValue value);
 
 /* Pop value from stack top */
-extern Value vm_pop(VM* vm);
+extern _sbValue vm_pop(_sbVM* vm);
 
 /* Peek at stack top element (without popping) */
-extern Value vm_peek(VM* vm, int distance);
+extern _sbValue vm_peek(_sbVM* vm, int distance);
 
 /* ========== Bytecode Loading Functions ========== */
 
 /* Load bytecode from bytecode generator */
-extern bool vm_load_bytecode(VM* vm, BytecodeGenerator* gen);
+extern bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen);
 
 /* Load bytecode from file */
-extern bool vm_load_from_file(VM* vm, const char* filename);
+extern bool vm_load_from_file(_sbVM* vm, const char* filename);
 
 /* ========== Execution Functions ========== */
 
 /* Execute bytecode */
-extern VMError vm_execute(VM* vm);
+extern VMError vm_execute(_sbVM* vm);
 
 /* Execute single instruction */
-extern VMError vm_execute_instruction(VM* vm);
+extern VMError vm_execute_instruction(_sbVM* vm);
 
 /* Call function */
-extern VMError vm_call_function(VM* vm, Function* func, int arg_count);
+extern VMError vm_call_function(_sbVM* vm, _sbVFunction* func, int arg_count);
 
 /* ========== Native Function Management ========== */
 
 /* Register native function */
-extern void vm_register_native(VM* vm, const char* name, NativeFunction func);
+extern void vm_register_native(_sbVM* vm, const char* name, NativeFunction func);
 
 /* Push value to VM stack from external source */
-extern void vm_push_external(VM* vm, Value value);
+extern void vm_push_external(_sbVM* vm, _sbValue value);
 
 /* ========== Variable Management Functions ========== */
 
 /* Get variable value */
-extern Value* vm_get_variable(VM* vm, const char* name);
+extern _sbValue* vm_get_variable(_sbVM* vm, const char* name);
 
 /* Set variable value */
-extern bool vm_set_variable(VM* vm, const char* name, Value value);
+extern bool vm_set_variable(_sbVM* vm, const char* name, _sbValue value);
 
 /* Define global variable */
-extern bool vm_define_global(VM* vm, const char* name, Value value);
+extern bool vm_define_global(_sbVM* vm, const char* name, _sbValue value);
 
 /* ========== Value Creation Functions ========== */
 
 /* Create null value */
-extern Value create_null();
+extern _sbValue create_null();
 
 /* Create numeric value */
-extern Value create_number(double num);
+extern _sbValue create_number(double num);
 
 /* Create string value */
-extern Value create_string(VM* vm, const char* str);
+extern _sbValue create_string(_sbVM* vm, const char* str);
 
 /* Create boolean value */
-extern Value create_bool(bool b);
+extern _sbValue create_bool(bool b);
 
 /* Create function value */
-extern Value create_function(VM* vm, Function* func);
+extern _sbValue create_function(_sbVM* vm, _sbVFunction* func);
 
 /* Create native function value */
-extern Value create_native(NativeFunction func);
+extern _sbValue create_native(NativeFunction func);
 
 /* Create list */
-extern Value create_list(VM* vm);
+extern _sbValue create_list(_sbVM* vm);
 
 /* ========== Value Operation Functions ========== */
 
 /* Check if value is truthy */
-extern bool is_truthy(Value value);
+extern bool is_truthy(_sbValue value);
 
 /* Check if two values are equal */
-extern bool values_equal(Value a, Value b);
+extern bool values_equal(_sbValue a, _sbValue b);
 
 /* Copy value (deep copy) */
-extern Value copy_value(VM* vm, Value value);
+extern _sbValue copy_value(_sbVM* vm, _sbValue value);
 
 /* Free memory occupied by value (GC-aware) */
-extern void free_value_gc(VM* vm, Value value);
+extern void free_value_gc(_sbVM* vm, _sbValue value);
 
 /* Free memory occupied by value */
-extern void free_value(Value value);
+extern void free_value(_sbValue value);
 
 /* ========== No skipping repeated seperator: strtok ========== */
 extern char* _no_skip_strtok(char* str, const char* delim);
 
 /* ========== Error Handling Functions ========== */
 
-/* Set VM error */
-extern void vm_error(VM* vm, VMError error, const char* format, ...);
-
-/* Get error type string */
-extern const char* vm_error_string(VMError error);
-
 /* Print stack contents (for debugging) */
-extern void vm_print_stack(VM* vm);
+extern void vm_print_stack(_sbVM* vm);
 
 /* Print vm information */
-extern void vm_print_status(VM* vm);
-
-/* Print error information */
-extern void vm_print_error(VM* vm);
+extern void vm_print_status(_sbVM* vm);
 
 /* ========== Source Tracking Functions ========== */
 
 /* Set source information for backtrace */
-extern void vm_set_source_info(VM* vm, const char* filename, const char* source_content);
+extern int vm_set_source_info(_sbVM* vm, const char* filename, bool bytecode);
+
+/* traceback source information for backtrace */
+extern int vm_back_source_info(_sbVM* vm);
+
+/* lookup source information for backtrace */
+extern int vm_sourceinfo_lookup(_sbVM* vm, const char* filename);
+
+/* Add source information for backtrace */
+extern int vm_add_source_info(_sbVM* vm, const char* filename, bool bytecode);
 
 /* Mark VM as executing bytecode only */
-extern void vm_set_bytecode_execution(VM* vm, bool is_bytecode);
+extern void vm_set_bytecode_execution(_sbVM* vm, bool is_bytecode);
 
 /* Read entire file into memory */
 extern char* read_file(const char* filename);
@@ -331,27 +345,27 @@ extern char* read_file(const char* filename);
 /* ========== Garbage Collection Functions ========== */
 
 /* Perform garbage collection */
-extern void vm_gc_collect(VM* vm);
+extern void vm_gc_collect(_sbVM* vm);
 
 /* Mark value (GC phase one) */
-extern void vm_gc_mark(VM* vm, Value value);
+extern void vm_gc_mark(_sbVM* vm, _sbValue value);
 
 /* Sweep unmarked objects (GC phase two) */
-extern void vm_gc_sweep(VM* vm);
+extern void vm_gc_sweep(_sbVM* vm);
 
 /* Allocate memory with GC tracking */
-extern void* gc_alloc(VM* vm, size_t size, ValueType type);
+extern void* gc_alloc(_sbVM* vm, size_t size, _sbValueType type);
 
 /* Free GC object */
-extern void gc_free_object(VM* vm, GCObject* obj);
+extern void gc_free_object(_sbVM* vm, _sbGCObject* obj);
 
 /* Mark all reachable objects from roots */
-extern void vm_gc_mark_roots(VM* vm);
+extern void vm_gc_mark_roots(_sbVM* vm);
 
 /* Check if pointer is GC-managed */
-extern bool is_gc_managed(VM* vm, void* ptr);
+extern bool is_gc_managed(_sbVM* vm, void* ptr);
 
 /* Clean up static buffers */
-extern void vm_cleanup_static_buffers();
+extern void vm_cleanup_static_buffers(_sbVM* vm);
 
 #endif

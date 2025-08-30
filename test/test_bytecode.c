@@ -13,7 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-static char* read_file(const char* filename) {
+/*
+ *static char* read_file(const char* filename) {
     FILE* file = fopen(filename, "r");
     if (!file) {
         return NULL;
@@ -35,6 +36,7 @@ static char* read_file(const char* filename) {
 
     return content;
 }
+*/
 
 int main(int argc, char **argv) {
     const char* test_code;

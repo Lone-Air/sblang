@@ -187,7 +187,7 @@ static void print_usage(const char* program_name) {
     printf("Create by Laman28 - Release under LGPL License\n");
     printf("Usage: %s [options] file1 [file2 ...]\n", program_name);
     printf("\nOptions:\n");
-    printf("  -d, --debug     Enable debugging for vm when it ocurred error\n");
+    printf("  -d, --debug     Enable debugging for vm when vm shutdown\n");
     printf("  -c              Compile only (generate .sbc files)\n");
     printf("  -o <file>       Specify output file (only with single input file)\n");
     printf("  -v, --version   Show version information\n");
@@ -328,10 +328,12 @@ static bool execute_file(const char* input_file) {
     BytecodeGenerator* gen = nullptr;
     bool needs_cleanup = false;
     char* source_content = nullptr;
+    bool bytecode = false;
     
     /* Check if it's a bytecode file */
     if (is_bytecode_file(input_file)) {
         /* Load bytecode directly */
+        bytecode = true;
         gen = load_bytecode(input_file);
         if (!gen) {
             fprintf(stderr, "Error: Failed to load bytecode from '%s'\n", input_file);
@@ -424,7 +426,7 @@ static bool execute_file(const char* input_file) {
     
     /* Create VM */
     //printf("DEBUG: About to create VM\n");
-    VM* vm = create_vm();
+    _sbVM* vm = create_vm();
     if (debugmode)
         enable_debug(vm);
 
@@ -436,8 +438,8 @@ static bool execute_file(const char* input_file) {
     }
     
     /* Set source information for backtrace */
+    vm_set_source_info(vm, input_file, bytecode);
     if (source_content) {
-        vm_set_source_info(vm, input_file, source_content);
         free(source_content);
         source_content = nullptr;
     } else {
@@ -462,13 +464,16 @@ static bool execute_file(const char* input_file) {
         if (needs_cleanup) destroy_bytecode_generator(gen);
         return false;
     }
-    
+
+    if (vm->debug)
+        vm_print_status(vm);
+
     /* Clean up */
     destroy_vm(vm);
     if (needs_cleanup) destroy_bytecode_generator(gen);
     
     /* Clean up any static buffers */
-    vm_cleanup_static_buffers();
+    //vm_cleanup_static_buffers(vm);
     
     return true;
 }

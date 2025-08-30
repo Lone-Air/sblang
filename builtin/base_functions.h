@@ -10,6 +10,6 @@
 
 #include "../vm/vm.h"
 
-void register_builtin_functions(VM* vm);
+void register_builtin_functions(_sbVM* vm);
 
 #endif

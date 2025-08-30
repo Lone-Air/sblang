@@ -5,46 +5,47 @@
  */
 
 #include "../../vm/vm.h"
+#include "../../error/error.h"
 #include <math.h>
 
 /* Native sqrt function */
-static Value native_sqrt(VM* vm, Value* args, int arg_count) {
+static _sbValue native_sqrt(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "sqrt expects exactly 1 argument");
         return create_null();
     }
-    
+
     if (args[0].type != VAL_NUMBER) {
         vm_error(vm, VM_TYPE_ERROR, "sqrt expects a number");
         return create_null();
     }
-    
+
     double num = args[0].as.number;
     if (num < 0) {
         vm_error(vm, VM_RUNTIME_ERROR, "sqrt of negative number");
         return create_null();
     }
-    
+
     return create_number(sqrt(num));
 }
 
 /* Native abs function */
-static Value native_abs(VM* vm, Value* args, int arg_count) {
+static _sbValue native_abs(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "abs expects exactly 1 argument");
         return create_null();
     }
-    
+
     if (args[0].type != VAL_NUMBER) {
         vm_error(vm, VM_TYPE_ERROR, "abs expects a number");
         return create_null();
     }
-    
+
     return create_number(fabs(args[0].as.number));
 }
 
 /* Native mod function */
-static Value native_mod(VM* vm, Value* args, int arg_count) {
+static _sbValue native_mod(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "mod expects exactly 1 argument");
         return create_null();
@@ -59,7 +60,7 @@ static Value native_mod(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native ceil function */
-static Value native_ceil(VM* vm, Value* args, int arg_count) {
+static _sbValue native_ceil(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "ceil expects exactly 1 argument");
         return create_null();
@@ -74,7 +75,7 @@ static Value native_ceil(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native fract function */
-static Value native_fract(VM* vm, Value* args, int arg_count) {
+static _sbValue native_fract(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "fract expects exactly 1 argument");
         return create_null();
@@ -93,7 +94,7 @@ static Value native_fract(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native int function */
-static Value native_int(VM* vm, Value* args, int arg_count) {
+static _sbValue native_int(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "int expects exactly 1 argument");
         return create_null();
@@ -112,7 +113,7 @@ static Value native_int(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native frexpm function */
-static Value native_frexpm(VM* vm, Value* args, int arg_count) {
+static _sbValue native_frexpm(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "frexpm expects exactly 1 argument");
         return create_null();
@@ -129,7 +130,7 @@ static Value native_frexpm(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native frexpe function */
-static Value native_frexpe(VM* vm, Value* args, int arg_count) {
+static _sbValue native_frexpe(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "frexpe expects exactly 1 argument");
         return create_null();
@@ -148,7 +149,7 @@ static Value native_frexpe(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native log function */
-static Value native_log(VM* vm, Value* args, int arg_count) {
+static _sbValue native_log(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "log expects exactly 1 argument");
         return create_null();
@@ -163,7 +164,7 @@ static Value native_log(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native ln function */
-static Value native_ln(VM* vm, Value* args, int arg_count) {
+static _sbValue native_ln(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "ln expects exactly 1 argument");
         return create_null();
@@ -178,7 +179,7 @@ static Value native_ln(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native lg function */
-static Value native_lg(VM* vm, Value* args, int arg_count) {
+static _sbValue native_lg(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "lg expects exactly 1 argument");
         return create_null();
@@ -193,7 +194,7 @@ static Value native_lg(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native log2 function */
-static Value native_log2(VM* vm, Value* args, int arg_count) {
+static _sbValue native_log2(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "log2 expects exactly 1 argument");
         return create_null();
@@ -208,7 +209,7 @@ static Value native_log2(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native exp function */
-static Value native_exp(VM* vm, Value* args, int arg_count) {
+static _sbValue native_exp(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "exp expects exactly 1 argument");
         return create_null();
@@ -223,7 +224,7 @@ static Value native_exp(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native pow function */
-static Value native_pow(VM* vm, Value* args, int arg_count) {
+static _sbValue native_pow(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 2) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "pow expects exactly 1 argument");
         return create_null();
@@ -238,7 +239,7 @@ static Value native_pow(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native ldexp function */
-static Value native_ldexp(VM* vm, Value* args, int arg_count) {
+static _sbValue native_ldexp(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 2) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "ldexp expects exactly 1 argument");
         return create_null();
@@ -253,37 +254,37 @@ static Value native_ldexp(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native sin function */
-static Value native_sin(VM* vm, Value* args, int arg_count) {
+static _sbValue native_sin(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "sin expects exactly 1 argument");
         return create_null();
     }
-    
+
     if (args[0].type != VAL_NUMBER) {
         vm_error(vm, VM_TYPE_ERROR, "sin expects a number");
         return create_null();
     }
-    
+
     return create_number(sin(args[0].as.number));
 }
 
 /* Native cos function */
-static Value native_cos(VM* vm, Value* args, int arg_count) {
+static _sbValue native_cos(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "cos expects exactly 1 argument");
         return create_null();
     }
-    
+
     if (args[0].type != VAL_NUMBER) {
         vm_error(vm, VM_TYPE_ERROR, "cos expects a number");
         return create_null();
     }
-    
+
     return create_number(cos(args[0].as.number));
 }
 
 /* Native tan function */
-static Value native_tan(VM* vm, Value* args, int arg_count) {
+static _sbValue native_tan(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "tan expects exactly 1 argument");
         return create_null();
@@ -298,7 +299,7 @@ static Value native_tan(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native asin function */
-static Value native_asin(VM* vm, Value* args, int arg_count) {
+static _sbValue native_asin(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "asin expects exactly 1 argument");
         return create_null();
@@ -313,7 +314,7 @@ static Value native_asin(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native acos function */
-static Value native_acos(VM* vm, Value* args, int arg_count) {
+static _sbValue native_acos(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "acos expects exactly 1 argument");
         return create_null();
@@ -328,7 +329,7 @@ static Value native_acos(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native atan function */
-static Value native_atan(VM* vm, Value* args, int arg_count) {
+static _sbValue native_atan(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "atan expects exactly 1 argument");
         return create_null();
@@ -343,7 +344,7 @@ static Value native_atan(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native sinh function */
-static Value native_sinh(VM* vm, Value* args, int arg_count) {
+static _sbValue native_sinh(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "sinh expects exactly 1 argument");
         return create_null();
@@ -358,7 +359,7 @@ static Value native_sinh(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native cosh function */
-static Value native_cosh(VM* vm, Value* args, int arg_count) {
+static _sbValue native_cosh(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "cosh expects exactly 1 argument");
         return create_null();
@@ -373,7 +374,7 @@ static Value native_cosh(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native tanh function */
-static Value native_tanh(VM* vm, Value* args, int arg_count) {
+static _sbValue native_tanh(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "tanh expects exactly 1 argument");
         return create_null();
@@ -388,32 +389,32 @@ static Value native_tanh(VM* vm, Value* args, int arg_count) {
 }
 
 /* Native max function */
-static Value native_max(VM* vm, Value* args, int arg_count) {
+static _sbValue native_max(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count < 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "max expects at least 1 argument");
         return create_null();
     }
-    
+
     double max_val = 0;
     bool first = true;
-    
+
     for (int i = 0; i < arg_count; i++) {
         if (args[i].type != VAL_NUMBER) {
             vm_error(vm, VM_TYPE_ERROR, "max expects only numbers");
             return create_null();
         }
-        
+
         if (first || args[i].as.number > max_val) {
             max_val = args[i].as.number;
             first = false;
         }
     }
-    
+
     return create_number(max_val);
 }
 
 /* Native min function */
-static Value native_min(VM* vm, Value* args, int arg_count) {
+static _sbValue native_min(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count < 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "min expects at least 1 argument");
         return create_null();
@@ -438,7 +439,7 @@ static Value native_min(VM* vm, Value* args, int arg_count) {
 }
 
 /* Library initialization function */
-int _sbLibInit(VM* vm) {
+int _sbLibInit(_sbVM* vm) {
     if (!vm) {
         return 1; /* Error: invalid VM */
     }

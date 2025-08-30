@@ -104,6 +104,8 @@ typedef enum {
     OP_LIST_STORE,      /* Store list element */
     OP_LIST_PUSH,       /* Push element to list */
 
+    OP_BW_SFT,           /* Backward sf_traceback */
+
     OP_HALT             /* Halt execution */
 } OpCode;
 

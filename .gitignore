@@ -11,3 +11,4 @@ lib/
 *.sbc
 CLAUDE.md
 .claude
+vgcore*

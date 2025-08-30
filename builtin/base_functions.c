@@ -6,6 +6,7 @@
  */
 
 #include "base_functions.h"
+#include "../error/error.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -34,7 +35,7 @@ char* double_to_string(double value) {
 }
 
 /* Built-in print function */
-static Value builtin_print(VM* vm, Value* args, int arg_count) {
+static _sbValue builtin_print(_sbVM* vm, _sbValue* args, int arg_count) {
     for (int i = 0; i < arg_count; i++) {
         switch (args[i].type) {
             case VAL_NULL:
@@ -71,7 +72,7 @@ static Value builtin_print(VM* vm, Value* args, int arg_count) {
 }
 
 /* Built-in input function */
-static Value builtin_input(VM* vm, Value* args, int arg_count) {
+static _sbValue builtin_input(_sbVM* vm, _sbValue* args, int arg_count) {
     /* Print prompt if provided */
     if (arg_count > 0 && args[0].type == VAL_STRING) {
         printf("%s", args[0].as.string);
@@ -92,7 +93,7 @@ static Value builtin_input(VM* vm, Value* args, int arg_count) {
 }
 
 /* Built-in len function */
-static Value builtin_len(VM* vm, Value* args, int arg_count) {
+static _sbValue builtin_len(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "len() expects exactly 1 argument");
         return create_null();
@@ -118,7 +119,7 @@ static Value builtin_len(VM* vm, Value* args, int arg_count) {
 }
 
 /* Built-in ord function */
-static Value builtin_ord(VM* vm, Value* args, int arg_count) {
+static _sbValue builtin_ord(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "ord() expects exactly 1 argument");
         return create_null();
@@ -139,7 +140,7 @@ static Value builtin_ord(VM* vm, Value* args, int arg_count) {
 }
 
 /* Built-in chr function */
-static Value builtin_chr(VM* vm, Value* args, int arg_count) {
+static _sbValue builtin_chr(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "chr() expects exactly 1 argument");
         return create_null();
@@ -158,7 +159,7 @@ static Value builtin_chr(VM* vm, Value* args, int arg_count) {
 }
 
 /* Built-in type function */
-static Value builtin_type(VM* vm, Value* args, int arg_count) {
+static _sbValue builtin_type(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "type() expects exactly 1 argument");
         return create_null();
@@ -189,7 +190,7 @@ static Value builtin_type(VM* vm, Value* args, int arg_count) {
 }
 
 /* Built-in address function */
-static Value builtin_address(VM* vm, Value* args, int arg_count) {
+static _sbValue builtin_address(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "address() expects exactly 1 argument");
         return create_null();
@@ -199,7 +200,7 @@ static Value builtin_address(VM* vm, Value* args, int arg_count) {
 }
 
 /* Built-in exit function */
-static Value builtin_exit(VM* vm, Value* args, int arg_count) {
+static _sbValue builtin_exit(_sbVM* vm, _sbValue* args, int arg_count) {
     int exit_code = 0;
 
     if (arg_count > 0 && args[0].type == VAL_NUMBER) {
@@ -214,7 +215,7 @@ static Value builtin_exit(VM* vm, Value* args, int arg_count) {
 }
 
 /* Built-in toString function */
-static Value builtin_toString(VM* vm, Value* args, int arg_count) {
+static _sbValue builtin_toString(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
         vm_error(vm, VM_ARGUMENT_MISMATCH, "toString() expects exactly 1 argument");
         return create_null();
@@ -225,7 +226,7 @@ static Value builtin_toString(VM* vm, Value* args, int arg_count) {
             return create_string(vm, "null");
         case VAL_NUMBER:
             char* _s = double_to_string(args[0].as.number);
-            Value v = create_string(vm,_s);
+            _sbValue v = create_string(vm,_s);
             free(_s);
             return v;
         case VAL_STRING:
@@ -233,11 +234,13 @@ static Value builtin_toString(VM* vm, Value* args, int arg_count) {
         case VAL_BOOL:
             return create_string(vm,args[0].as.boolean ? "true" : "false");
         case VAL_FUNCTION:
-            char* _s1 = calloc(12 + strlen(args[0].as.function->name), sizeof(char));
+            char* _s1 = calloc(12 + strlen(args[0].as.function->name) + strlen(args[0].as.function->source_code_file), sizeof(char));
             strcpy(_s1, "<function:");
             strcat(_s1, args[0].as.function->name);
+            strcat(_s1, ":");
+            strcat(_s1, args[0].as.function->source_code_file);
             strcat(_s1, ">");
-            Value v1 = create_string(vm,_s1);
+            _sbValue v1 = create_string(vm,_s1);
             free(_s1);
             return v1;
         case VAL_NATIVE:
@@ -261,7 +264,7 @@ static Value builtin_toString(VM* vm, Value* args, int arg_count) {
                     strcat(_s3, ", ");
             }
             strcat(_s3, "}");
-            Value v3 = create_string(vm,_s3);
+            _sbValue v3 = create_string(vm,_s3);
             free(_s3);
             return v3;
         case VAL_STRUCT_INSTANCE:
@@ -271,22 +274,22 @@ static Value builtin_toString(VM* vm, Value* args, int arg_count) {
             strcpy(_s4, "{Instance[");
             strcat(_s4, args[0].as.instance->struct_def->name);
             strcat(_s4, "]}");
-            Value v4 = create_string(vm,_s4);
+            _sbValue v4 = create_string(vm,_s4);
             free(_s4);
             return v4;
         case VAL_LIST:
-            return create_string(vm,"list");
+            return create_string(vm,"<list object>");
         default:
             return create_string(vm,"<?undefined type>");
     }
 }
 
-static void register_builtin_variables(VM* vm) {
+static void register_builtin_variables(_sbVM* vm) {
     //printf("DEBUG: Starting register_builtin_variables\n");
     
     // Use create_string to properly allocate the string
     //printf("DEBUG: About to create EOL\n");
-    Value eol_val = create_string(vm,"\n");
+    _sbValue eol_val = create_string(vm,"\n");
     //printf("DEBUG: Created EOL, about to define global\n");
     vm_define_global(vm, "EOL", eol_val);
     //printf("DEBUG: EOL global defined\n");
@@ -298,7 +301,7 @@ static void register_builtin_variables(VM* vm) {
 }
 
 /* Register built-in functions */
-void register_builtin_functions(VM* vm) {
+void register_builtin_functions(_sbVM* vm) {
     vm_register_native(vm, "print", builtin_print);
     vm_register_native(vm, "input", builtin_input);
     vm_register_native(vm, "len", builtin_len);
