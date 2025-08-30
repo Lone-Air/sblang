@@ -213,6 +213,8 @@ _sbVM* create_vm() {
     vm->call_depth = 0;
     vm->call_capacity = VM_INITIAL_CALL_STACK_SIZE;
 
+    vm->debug = false;
+
     if (!vm->stack || !vm->call_stack) {
         if (vm->stack) free(vm->stack);
         if (vm->call_stack) free(vm->call_stack);

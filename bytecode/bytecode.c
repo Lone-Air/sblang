@@ -712,7 +712,7 @@ bool generate_struct(BytecodeGenerator* gen, ASTNode* node) {
             if (member->type == _sbIDENTIFIER) {
                 char* member_name = _s_strdup(member->data.str_value);
                 dynarray_push(member_list, member_name);
-                emit_instruction_with_str(gen, OP_PUSH_STR, member->data.str_value);
+                emit_instruction_with_str(gen, OP_PUSH_IDENT, member->data.str_value);
                 member_count++;
             }
         }
