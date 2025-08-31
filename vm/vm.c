@@ -1147,7 +1147,7 @@ void vm_print_status(_sbVM* vm) {
 
     printf("Defined functions: %lu\n", vm->function_count);
     printf("Defined structures: %lu\n", vm->struct_count);
-    printf("Defined structures: %lu\n", vm->struct_count);
+    printf("Loaded modules: %lu\n", vm->loaded_lib_count);
 
     vm_print_stack(vm);
 }
