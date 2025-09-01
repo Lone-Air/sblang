@@ -79,7 +79,7 @@ char* _no_skip_strtok(char* str, const char* delim){
 /* Forward declaration */
 static void free_variable_table_gc(_sbVM* vm, _sbVariableTable* table);
 static void free_variable_table_gc_safe(_sbVM* vm, _sbVariableTable* table);
-static void gc_free_data_by_type(_sbValueType type, void* data);
+static void gc_free_data_by_type(_sbVM* vm, _sbValueType type, void* data);
 static bool gc_remove_and_free(_sbVM* vm, void* ptr);
 
 /* Initialize variable table */
@@ -293,7 +293,7 @@ void destroy_vm(_sbVM* vm) {
 
         // Free the actual data based on type
         if (current->data) {
-            gc_free_data_by_type(current->type, current->data);
+            gc_free_data_by_type(vm, current->type, current->data);
         }
 
         free(current);
@@ -499,6 +499,7 @@ _sbValue vm_peek(_sbVM* vm, int distance) {
 _sbValue create_null() {
     _sbValue val;
     val.type = VAL_NULL;
+    val.freed = false;
     return val;
 }
 
@@ -509,6 +510,7 @@ _sbValue create_number(double num) {
     _sbValue val;
     val.type = VAL_NUMBER;
     val.as.number = num;
+    val.freed = false;
     return val;
 }
 
@@ -518,6 +520,7 @@ _sbValue create_number(double num) {
 _sbValue create_string(_sbVM* vm, const char* str) {
     _sbValue val;
     val.type = VAL_STRING;
+    val.freed = false;
 
     if (str && vm && vm->gc_enabled) {
         // Use GC allocation for string
@@ -543,6 +546,7 @@ _sbValue create_bool(bool b) {
     _sbValue val;
     val.type = VAL_BOOL;
     val.as.boolean = b;
+    val.freed = false;
     return val;
 }
 
@@ -552,6 +556,7 @@ _sbValue create_bool(bool b) {
 _sbValue create_function(_sbVM* vm, _sbVFunction* func) {
     _sbValue val;
     val.type = VAL_FUNCTION;
+    val.freed = false;
     val.as.function = func;
     val.as.function->source_code_file = _s_strdup(vm->source_filename);
     return val;
@@ -560,10 +565,11 @@ _sbValue create_function(_sbVM* vm, _sbVFunction* func) {
 /**
  * Create native function value
  */
-_sbValue create_native(NativeFunction func) {
+_sbValue create_native(_sbNativeFunction func) {
     _sbValue val;
     val.type = VAL_NATIVE;
     val.as.native = func;
+    val.freed = false;
     return val;
 }
 
@@ -573,6 +579,7 @@ _sbValue create_native(NativeFunction func) {
 _sbValue create_list(_sbVM* vm) {
     _sbValue val;
     val.type = VAL_LIST;
+    val.freed = false;
 
     if (vm && vm->gc_enabled) {
         val.as.list = (_sbVList*)gc_alloc(vm, sizeof(_sbVList), VAL_LIST);
@@ -587,6 +594,31 @@ _sbValue create_list(_sbVM* vm) {
     }
     return val;
 }
+
+/**
+ * Append an item to list
+ */
+_sbVList* append_list(_sbVList* list, _sbValue value) {
+    if (list->count + 1 > list->capacity) {
+        list->capacity += 8;
+        list->items = realloc(list->items, sizeof(_sbValue) * list->capacity);
+    }
+
+    list->items[list->count++] = value;
+
+    return list;
+}
+
+/**
+ * Pop an item from list
+ */
+_sbVList* pop_list(_sbVList* list) {
+
+    --list->count;
+
+    return list;
+}
+
 
 /**
  * Check if value is truthy (truthiness evaluation)
@@ -623,6 +655,7 @@ bool values_equal(_sbValue a, _sbValue b) {
 _sbValue copy_value(_sbVM* vm, _sbValue value) {
     _sbValue result;
     result.type = value.type;
+    result.freed = false;
 
     switch (value.type) {
         case VAL_NULL:
@@ -636,11 +669,21 @@ _sbValue copy_value(_sbVM* vm, _sbValue value) {
         case VAL_STRING:
             if (value.as.string) {
                 if (vm && vm->gc_enabled) {
-                    // Use GC allocation
+                    // Create a safe copy before GC allocation to prevent use-after-free
+                    // during garbage collection triggered by gc_alloc
                     size_t len = strlen(value.as.string) + 1;
-                    result.as.string = (char*)gc_alloc(vm, len, VAL_STRING);
-                    if (result.as.string) {
-                        strcpy(result.as.string, value.as.string);
+                    char* temp_string = malloc(len);  // Use regular malloc for temp copy
+                    if (temp_string) {
+                        strcpy(temp_string, value.as.string);
+                        
+                        result.as.string = (char*)gc_alloc(vm, len, VAL_STRING);
+                        if (result.as.string) {
+                            strcpy(result.as.string, temp_string);
+                        }
+                        
+                        free(temp_string);  // Free the temporary copy
+                    } else {
+                        result.as.string = nullptr;
                     }
                 } else {
                     result.as.string = _s_strdup(value.as.string);
@@ -738,7 +781,7 @@ static bool gc_remove_and_free(_sbVM* vm, void* ptr) {
             }
 
             // Free the actual data based on type
-            gc_free_data_by_type(current->type, current->data);
+            gc_free_data_by_type(vm, current->type, current->data);
 
             // Free the GC object header
             free(current);
@@ -755,18 +798,24 @@ static bool gc_remove_and_free(_sbVM* vm, void* ptr) {
  * Free data based on its type - used only during VM destruction when GC is disabled
  * NOTE: This should NOT recursively free child objects as they are managed separately in GC
  */
-static void gc_free_data_by_type(_sbValueType type, void* data) {
+static void gc_free_data_by_type(_sbVM* vm, _sbValueType type, void* data) {
     if (!data) return;
+    if (type == VM_FREED) return;
 
     switch (type) {
         case VAL_STRING:
             free(data);
+            data = nullptr;
             break;
         case VAL_LIST: {
             _sbVList* list = (_sbVList*)data;
             // Don't free list->items if it's GC-allocated, it will be freed separately
             // Only free if it's not in the GC object list (check by type)
+
             if (list->items) {
+                /*for (size_t i = 0; i < list->count; i++) {
+                    free_value(list->items[i]);
+                }*/
                 // This is tricky - items array might be GC or non-GC allocated
                 // For now, assume items arrays are always non-GC allocated
                 free(list->items);
@@ -813,6 +862,9 @@ void free_value_gc(_sbVM* vm, _sbValue value) {
         return;
     }
 
+    if (value.freed) return;
+    value.freed = true;
+
     switch (value.type) {
         case VAL_STRING:
             if (value.as.string) {
@@ -820,15 +872,6 @@ void free_value_gc(_sbVM* vm, _sbValue value) {
             }
             break;
         case VAL_LIST:
-            if (value.as.list) {
-                // First free all elements recursively
-                if (value.as.list->items) {
-                    for (size_t i = 0; i < value.as.list->count; i++) {
-                        free_value_gc(vm, value.as.list->items[i]);
-                    }
-                }
-                gc_remove_and_free(vm, value.as.list);
-            }
             break;
         case VAL_STRUCT_INSTANCE:
             if (value.as.instance) {
@@ -851,12 +894,17 @@ void free_value_gc(_sbVM* vm, _sbValue value) {
             // Other types don't allocate heap memory or are not GC-managed
             break;
     }
+
+    value.type = VM_FREED;
 }
 
 /**
  * Free memory occupied by value
  */
 void free_value(_sbValue value) {
+    if (value.freed) return;
+    value.freed = true;
+
     switch (value.type) {
         case VAL_STRING:
             if (value.as.string) {
@@ -904,6 +952,8 @@ void free_value(_sbValue value) {
         default:
             break; // Other types don't need special handling
     }
+
+    value.type = VM_FREED;
 }
 
 /* ========== Error Handling Functions ========== */
@@ -1356,7 +1406,7 @@ bool vm_define_global(_sbVM* vm, const char* name, _sbValue value) {
 /**
  * Register native function to global variables
  */
-void vm_register_native(_sbVM* vm, const char* name, NativeFunction func) {
+void vm_register_native(_sbVM* vm, const char* name, _sbNativeFunction func) {
     if (!vm || !name || !func) return;
 
     _sbValue native_val = create_native(func);
@@ -1997,7 +2047,7 @@ VMError vm_execute_instruction(_sbVM* vm) {
             else if (a.type == VAL_STRING && b.type == VAL_STRING) {
                 // String concatenation
                 size_t len = strlen(a.as.string) + strlen(b.as.string) + 1;
-                char* result = (char*)malloc(len);
+                char* result = (char*)calloc(sizeof(char), len);
                 if (result) {
                     strcpy(result, a.as.string);
                     strcat(result, b.as.string);
@@ -2308,8 +2358,9 @@ VMError vm_execute_instruction(_sbVM* vm) {
                 // Push the value directly for reference types like structs
                 // For function arguments, copy_value will be called separately
                 switch (var->type) {
+                    case VAL_LIST:
                     case VAL_STRUCT_INSTANCE: {
-                        // For struct instances, push reference to allow member modification
+                        // Special types, push reference to allow member modification
                         vm_push(vm, *var);
                         break;
                     }
@@ -2818,7 +2869,16 @@ end_of_create_struct:
                 return VM_INDEX_OUT_OF_BOUNDS;
             }
 
-            vm_push(vm, copy_value(vm, list.as.list->items[list.as.list->count - idx - 1]));
+            switch (list.as.list->items[idx].type) {
+                case VAL_LIST:
+                case VAL_STRUCT_INSTANCE: {
+                    vm_push(vm, list.as.list->items[idx]);
+                }
+
+                default: {
+                    vm_push(vm, copy_value(vm, list.as.list->items[idx]));
+                }
+            }
             break;
         }
 
@@ -3061,13 +3121,12 @@ void vm_gc_sweep(_sbVM* vm) {
             _sbGCObject* to_free = *current;
             *current = to_free->next;
 
-            // Free the actual data based on type
+            // Calculate size before freeing data
             if (to_free->data) {
-                gc_free_data_by_type(to_free->type, to_free->data);
                 freed_bytes += sizeof(_sbGCObject);
                 switch (to_free->type) {
                     case VAL_STRING:
-                        freed_bytes += strlen((char*)to_free->data) + 1;
+                        freed_bytes += strlen(to_free->data) + 1;
                         break;
                     case VAL_LIST:
                         freed_bytes += sizeof(_sbVList);
@@ -3078,6 +3137,9 @@ void vm_gc_sweep(_sbVM* vm) {
                     default:
                         break;
                 }
+                
+                // Now free the actual data after size calculation
+                gc_free_data_by_type(vm, to_free->type, to_free->data);
             }
 
             free(to_free);
@@ -3106,11 +3168,12 @@ void* gc_alloc(_sbVM* vm, size_t size, _sbValueType type) {
     }
 
     // Allocate GC object header
-    _sbGCObject* obj = (_sbGCObject*)malloc(sizeof(_sbGCObject));
+    _sbGCObject* obj = (_sbGCObject*)calloc(sizeof(_sbGCObject), 1);
     if (!obj) return nullptr;
 
     // Allocate the actual data
     void* data = malloc(size);
+    //memset(data, 0, size);
     if (!data) {
         free(obj);
         return nullptr;

@@ -1,0 +1,6 @@
+if(true)
+  print("STMT1", EOL);
+print("STMT2", EOL);
+
+if(false) ;
+else if(true) print("STMT3", EOL);

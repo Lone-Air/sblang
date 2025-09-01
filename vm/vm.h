@@ -34,7 +34,7 @@ typedef struct _sbValue _sbValue;
 typedef struct _sbVM _sbVM;
 
 /* Native function pointer type */
-typedef _sbValue (*NativeFunction)(_sbVM* vm, _sbValue* args, int arg_count);
+typedef _sbValue (*_sbNativeFunction)(_sbVM* vm, _sbValue* args, int arg_count);
 
 /* Function structure */
 typedef struct {
@@ -84,11 +84,12 @@ struct _sbValue {
         char* string;               /* String value */
         bool boolean;               /* Boolean value */
         _sbVFunction* function;         /* Function pointer */
-        NativeFunction native;      /* Native function pointer */
+        _sbNativeFunction native;      /* Native function pointer */
         _sbVStruct* struct_def;         /* Struct definition */
         _sbVStructInstance* instance;   /* Struct instance */
         _sbVList* list;                 /* List pointer */
     } as;
+    bool freed;
 };
 
 /* Call frame structure */
@@ -129,7 +130,9 @@ typedef enum {
     VM_MEMORY_ERROR,        /* Memory error */
     VM_INVALID_OPCODE,      /* Invalid opcode */
     VM_UNDEFINED_MEMBER,    /* Undefined member */
-    VM_NOT_A_STRUCT         /* Not a struct type */
+    VM_NOT_A_STRUCT,        /* Not a struct type */
+
+    VM_FREED                /* Freed value */
 } VMError;
 
 /* Loaded shared library information */
@@ -208,7 +211,7 @@ struct _sbVM {
 /* Native function binding structure */
 typedef struct {
     char* name;             /* Function name */
-    NativeFunction func;    /* Function pointer */
+    _sbNativeFunction func;    /* Function pointer */
 } _sbNativeBinding;
 
 /* ========== VM Management Functions ========== */
@@ -255,7 +258,7 @@ extern VMError vm_call_function(_sbVM* vm, _sbVFunction* func, int arg_count);
 /* ========== Native Function Management ========== */
 
 /* Register native function */
-extern void vm_register_native(_sbVM* vm, const char* name, NativeFunction func);
+extern void vm_register_native(_sbVM* vm, const char* name, _sbNativeFunction func);
 
 /* Push value to VM stack from external source */
 extern void vm_push_external(_sbVM* vm, _sbValue value);
@@ -289,12 +292,18 @@ extern _sbValue create_bool(bool b);
 extern _sbValue create_function(_sbVM* vm, _sbVFunction* func);
 
 /* Create native function value */
-extern _sbValue create_native(NativeFunction func);
+extern _sbValue create_native(_sbNativeFunction func);
 
 /* Create list */
 extern _sbValue create_list(_sbVM* vm);
 
 /* ========== Value Operation Functions ========== */
+
+/* Append an item to list */
+extern _sbVList* append_list(_sbVList* list, _sbValue value);
+
+/* Pop an item from list */
+extern _sbVList* pop_list(_sbVList* list);
 
 /* Check if value is truthy */
 extern bool is_truthy(_sbValue value);

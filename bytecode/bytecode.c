@@ -360,7 +360,7 @@ bool generate_expression(BytecodeGenerator* gen, ASTNode* node) {
             
         case _sbLIST_LITERAL:
             emit_instruction_with_int(gen, OP_LIST_NEW, node->data.list.count);
-            for (int i = node->data.list.count - 1; i >= 0; i--) {
+            for (int i = 0; i < node->data.list.count; i++) {
                 if (!generate_expression(gen, node->data.list.items[i])) return false;
                 emit_instruction(gen, OP_LIST_PUSH);
             }
@@ -469,6 +469,11 @@ bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
     bytecode_set_source_pos(gen, node->source_line, node->source_column);
     
     switch (node->type) {
+        case _sbNOTHING: {
+            emit_instruction(gen, OP_NOP);
+            return true;
+        }
+
         case _sbASSIGNMENT: {
             if (!generate_expression(gen, node->data.assignment.right)) return false;
             
@@ -760,7 +765,7 @@ void print_bytecode(BytecodeGenerator* gen) {
         Instruction* inst = (Instruction*)dynarray_get(gen->instructions, i);
         if (!inst) continue;
         
-        printf("%04zu: ", i);
+        printf("%06zx: ", i);
         
         switch (inst->opcode) {
             case OP_NOP: printf("NOP"); break;

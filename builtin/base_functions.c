@@ -118,6 +118,50 @@ static _sbValue builtin_len(_sbVM* vm, _sbValue* args, int arg_count) {
     }
 }
 
+/* Built-in dupe function */
+static _sbValue builtin_dupe(_sbVM* vm, _sbValue* args, int arg_count) {
+    if (arg_count != 1) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "dupe() expects exactly 1 argument");
+        return create_null();
+    }
+
+    return copy_value(vm, args[0]);
+}
+
+/* Built-in append_list function */
+static _sbValue builtin_append_list(_sbVM* vm, _sbValue* args, int arg_count) {
+    if (arg_count != 2) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "append_list() expects exactly 2 argument");
+        return create_null();
+    }
+
+    if (args[0].type == VAL_LIST) {
+        append_list(args[0].as.list, args[1]);
+        return create_null();
+    }
+    else{
+        vm_error(vm, VM_TYPE_ERROR, "append_list() expects a list");
+        return create_null();
+    }
+}
+
+/* Built-in pop_list function */
+static _sbValue builtin_pop_list(_sbVM* vm, _sbValue* args, int arg_count) {
+    if (arg_count != 1) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "append_list() expects exactly 1 argument");
+        return create_null();
+    }
+
+    if (args[0].type == VAL_LIST) {
+        pop_list(args[0].as.list);
+        return create_null();
+    }
+    else{
+        vm_error(vm, VM_TYPE_ERROR, "append_list() expects a list");
+        return create_null();
+    }
+}
+
 /* Built-in ord function */
 static _sbValue builtin_ord(_sbVM* vm, _sbValue* args, int arg_count) {
     if (arg_count != 1) {
@@ -305,6 +349,9 @@ void register_builtin_functions(_sbVM* vm) {
     vm_register_native(vm, "print", builtin_print);
     vm_register_native(vm, "input", builtin_input);
     vm_register_native(vm, "len", builtin_len);
+    vm_register_native(vm, "dupe", builtin_dupe);
+    vm_register_native(vm, "append_list", builtin_append_list);
+    vm_register_native(vm, "pop_list", builtin_pop_list);
 
     vm_register_native(vm, "ord", builtin_ord);
     vm_register_native(vm, "chr", builtin_chr);

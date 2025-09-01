@@ -841,30 +841,50 @@ ASTNode* parse_assignment(Parser* parser) {
 
 // Statement block
 ASTNode* parse_block(Parser* parser) {
+    bool multiline = true;
     if (!match_token(parser, "{"))
-      return nullptr;
+        multiline = false;
+      //return nullptr;
 
     _sbToken* open_brace = peek(parser);
-    next(parser); // remove '{'
+    if (multiline)
+      next(parser); // remove '{'
 
     ASTNode* block = create_ast_node(_sbBLOCK, parser);
     block->data.list.items = malloc(sizeof(ASTNode*));
     block->data.list.count = 0;
-    while (!match_token(parser, "}") && peek(parser)) {
+    if (multiline) {
+        while (!match_token(parser, "}") && peek(parser)) {
+            ASTNode* stmt = parse_statement(parser);
+            if (stmt) {
+                block->data.list.items = realloc(block->data.list.items, (block->data.list.count + 1) * sizeof(ASTNode*));
+                block->data.list.items[block->data.list.count++] = stmt;
+            }
+            else {
+                block->data.list.items = realloc(block->data.list.items, (block->data.list.count + 1) * sizeof(ASTNode*));
+                block->data.list.items[block->data.list.count++] = create_ast_node(_sbNOTHING, parser);
+            }
+        }
+
+        if (match_token(parser, "}")) {
+            next(parser); // remove '}'
+        }
+        else {
+            unclosed_delimiter(parser, "}", open_brace->line, open_brace->pos);
+            free_ast(block);
+            return nullptr;
+        }
+    }
+    else {
         ASTNode* stmt = parse_statement(parser);
         if (stmt) {
             block->data.list.items = realloc(block->data.list.items, (block->data.list.count + 1) * sizeof(ASTNode*));
             block->data.list.items[block->data.list.count++] = stmt;
         }
-    }
-
-    if (match_token(parser, "}")) {
-        next(parser); // remove '}'
-    }
-    else {
-        unclosed_delimiter(parser, "}", open_brace->line, open_brace->pos);
-        free_ast(block);
-        return nullptr;
+        else {
+            block->data.list.items = realloc(block->data.list.items, (block->data.list.count + 1) * sizeof(ASTNode*));
+            block->data.list.items[block->data.list.count++] = create_ast_node(_sbNOTHING, parser);
+        }
     }
 
     return block;
@@ -1323,7 +1343,7 @@ ASTNode* parse_primary(Parser* parser) {
         return node;
     }
     
-    return nullptr;
+    return create_ast_node(_sbNOTHING, parser);
 }
 
 ASTNode* parse_list(Parser* parser) {

@@ -1,0 +1,35 @@
+a = "who";
+i = 0;
+while(i < 20000){
+    if(a == "who"){
+        a = "whowho";
+    }
+    else{
+        if(a == "whowho"){
+            a = "hello";
+        }
+        else{
+            if(a == "hello"){
+                a = a + " world";
+            }
+            else{
+                if(a == "hello world"){
+                    a = a + " what if";
+                }
+                else{
+                    a = a + " [X] ";
+                }
+            }
+        }
+    }
+
+    if(i > 10){
+        i = i + 5;
+    }
+
+    i = i + 1;
+}
+
+print("Length: ", len(a), EOL);
+//input();
+//print("Preview: ", EOL, a, EOL);

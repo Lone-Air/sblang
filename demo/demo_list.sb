@@ -1,2 +1,5 @@
-a = [1, 2, 3, "s1", "s2"];
-print("Value: ", a[0], '\n');
+a = [1, 2, 3, "s1", "s2", print];
+append_list(a, 5);
+print("Value: ", a[len(a) - 1], '\n');
+pop_list(a);
+print("Value: ", a[len(a) - 1], '\n');
