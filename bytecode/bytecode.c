@@ -6,6 +6,9 @@
  */
 
 #include "bytecode.h"
+
+#include <dlfcn.h>
+
 #include "../error/error.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -464,11 +467,37 @@ bool generate_expression(BytecodeGenerator* gen, ASTNode* node) {
 
 bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
     if (!gen || !node) return false;
+
+    static size_t loop_start = -1;
+    static size_t loop_end = -1;
+    static bool loop = false;
     
     // Set source position from AST node
     bytecode_set_source_pos(gen, node->source_line, node->source_column);
     
     switch (node->type) {
+        case _sbCONTINUE: {
+            if (!loop){
+                bytecode_error("'continue' is not in a loop!");
+                return false;
+            }
+
+            emit_instruction_with_int(gen, OP_JUMP, (int)loop_start);
+
+            return true;
+        }
+
+        case _sbBREAK: {
+            if (!loop){
+                bytecode_error("'break' is not in a loop!");
+                return false;
+            }
+
+            emit_instruction_with_int(gen, OP_JUMP, (int)loop_end);
+
+            return true;
+        }
+
         case _sbNOTHING: {
             emit_instruction(gen, OP_NOP);
             return true;
@@ -500,7 +529,7 @@ bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
         
         case _sbIF: {
             if (!generate_expression(gen, node->data.if_stmt.condition)) return false;
-            
+
             size_t jump_false_addr;
             emit_jump_placeholder(gen, OP_JUMP_IF_FALSE, &jump_false_addr);
             
@@ -520,32 +549,37 @@ bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
         }
         
         case _sbWHILE: {
-            size_t loop_start = gen->current_addr;
+            loop = true;
+            loop_start = gen->current_addr;
             
             if (!generate_expression(gen, node->data.while_stmt.condition)) return false;
-            
+
             size_t jump_false_addr;
             emit_jump_placeholder(gen, OP_JUMP_IF_FALSE, &jump_false_addr);
+            loop_end = jump_false_addr;
             
             if (!generate_statement(gen, node->data.while_stmt.body)) return false;
             
             emit_instruction_with_int(gen, OP_JUMP, (int)loop_start);
             patch_jump(gen, jump_false_addr);
+            loop = false;
             return true;
         }
         
         case _sbFOR: {
+            loop = true;
             if (node->data.for_stmt.init) {
                 if (!generate_statement(gen, node->data.for_stmt.init)) return false;
             }
             
-            size_t loop_start = gen->current_addr;
+            loop_start = gen->current_addr;
             
             if (node->data.for_stmt.condition) {
                 if (!generate_expression(gen, node->data.for_stmt.condition)) return false;
-                
                 size_t jump_false_addr;
+
                 emit_jump_placeholder(gen, OP_JUMP_IF_FALSE, &jump_false_addr);
+                loop_end = jump_false_addr;
                 
                 if (!generate_statement(gen, node->data.for_stmt.body)) return false;
                 
@@ -564,6 +598,7 @@ bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
                 
                 emit_instruction_with_int(gen, OP_JUMP, (int)loop_start);
             }
+            loop = false;
             return true;
         }
         

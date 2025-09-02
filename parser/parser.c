@@ -249,6 +249,30 @@ ASTNode* parse_statement(Parser* parser) {
         return return_stmt;
     }
 
+    if (token->type == _sbContinue) {
+        next(parser);
+
+        ASTNode* continue_stmt = create_ast_node(_sbCONTINUE, parser);
+
+        if (!require_semicolon(parser)) {
+            return nullptr;
+        }
+
+        return continue_stmt;
+    }
+
+    if (token->type == _sbBreak) {
+        next(parser);
+
+        ASTNode* break_stmt = create_ast_node(_sbBREAK, parser);
+
+        if (!require_semicolon(parser)) {
+            return nullptr;
+        }
+
+        return break_stmt;
+    }
+
     // process expression (included function_call)
     ASTNode* stmt = parse_assignment(parser);
     if (stmt && !require_semicolon(parser)) {
@@ -1699,6 +1723,12 @@ void print_ast(ASTNode* node, int indent) {
                 print_ast(node->data.list.items[i], indent + 1);
             }
             break;
+        case _sbNOTHING:
+            printf("NOTHING\n");
+        case _sbCONTINUE:
+            printf("CONTINUE\n");
+        case _sbBREAK:
+            printf("BREAK\n");
         default:
             printf("UNKNOWN NODE TYPE\n");
     }
