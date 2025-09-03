@@ -602,9 +602,43 @@ _sbVList* append_list(_sbVList* list, _sbValue value) {
     if (list->count + 1 > list->capacity) {
         list->capacity += 8;
         list->items = realloc(list->items, sizeof(_sbValue) * list->capacity);
+        if (!list->items) return nullptr;
     }
 
     list->items[list->count++] = value;
+
+    return list;
+}
+
+/**
+ * Insert an item into list
+ */
+_sbVList* insert_list(_sbVList* list, int index, _sbValue value) {
+    _sbValue* new_list = malloc(sizeof(_sbValue) * list->capacity);
+    if (!new_list) return nullptr;
+
+    if (list->count + 1 > list->capacity) {
+        list->capacity += 8;
+        new_list = realloc(new_list, sizeof(_sbValue) * list->capacity);
+        if (!new_list) return nullptr;
+    }
+
+    //list->items[list->count++] = value;
+    int count = 0;
+    for (int i = 0; i < list->count; i++) {
+        if (i == index) {
+            new_list[count] = value;
+            count++;
+        }
+
+        new_list[count] = list->items[i];
+        count++;
+    }
+
+    free(list->items);
+    list->items = new_list;
+
+    list->count++;
 
     return list;
 }
@@ -2862,7 +2896,11 @@ end_of_create_struct:
             }
 
             int idx = (int)index.as.number;
-            if (idx < 0 || idx >= (int)list.as.list->count) {
+            if (idx < 0) {
+                idx = list.as.list->count + idx;
+            }
+
+            if (idx >= (int)list.as.list->count) {
                 vm_error(vm, VM_INDEX_OUT_OF_BOUNDS, "List index out of bounds");
                 free_value_gc(vm, index);
                 free_value_gc(vm, list);

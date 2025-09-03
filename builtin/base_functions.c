@@ -136,11 +136,49 @@ static _sbValue builtin_append_list(_sbVM* vm, _sbValue* args, int arg_count) {
     }
 
     if (args[0].type == VAL_LIST) {
-        append_list(args[0].as.list, args[1]);
+        if (!append_list(args[0].as.list, args[1])) {
+            vm_error(vm, VM_MEMORY_ERROR, "append_list(): cannot expand size of list");
+            return create_null();
+        }
         return create_null();
     }
     else{
         vm_error(vm, VM_TYPE_ERROR, "append_list() expects a list");
+        return create_null();
+    }
+}
+
+/* Built-in insert_list function */
+static _sbValue builtin_insert_list(_sbVM* vm, _sbValue* args, int arg_count) {
+    if (arg_count != 3) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "insert_list() expects exactly 3 argument");
+        return create_null();
+    }
+
+    if (args[0].type == VAL_LIST) {
+        if (args[1].type != VAL_NUMBER) {
+            vm_error(vm, VM_TYPE_ERROR, "insert_list(): invalid index");
+            return create_null();
+        }
+
+        int index = (int)args[1].as.number;
+        if (index < 0) {
+            index = args[0].as.list->count + index;
+        }
+
+        if (index >= args[0].as.list->count) {
+            vm_error(vm, VM_INDEX_OUT_OF_BOUNDS, "insert_list(): index out of bounds");
+            return create_null();
+        }
+
+        if (!insert_list(args[0].as.list, index, args[2])) {
+            vm_error(vm, VM_MEMORY_ERROR, "insert_list(): cannot expand size of list");
+            return create_null();
+        }
+        return create_null();
+    }
+    else{
+        vm_error(vm, VM_TYPE_ERROR, "insert_list() expects a list");
         return create_null();
     }
 }
@@ -351,6 +389,7 @@ void register_builtin_functions(_sbVM* vm) {
     vm_register_native(vm, "len", builtin_len);
     vm_register_native(vm, "dupe", builtin_dupe);
     vm_register_native(vm, "append_list", builtin_append_list);
+    vm_register_native(vm, "insert_list", builtin_insert_list);
     vm_register_native(vm, "pop_list", builtin_pop_list);
 
     vm_register_native(vm, "ord", builtin_ord);

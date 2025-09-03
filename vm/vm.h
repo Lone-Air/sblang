@@ -132,6 +132,8 @@ typedef enum {
     VM_UNDEFINED_MEMBER,    /* Undefined member */
     VM_NOT_A_STRUCT,        /* Not a struct type */
 
+    VM_MODULE_LOADED,       /* Module load successfully */
+
     VM_FREED                /* Freed value */
 } VMError;
 
@@ -301,6 +303,9 @@ extern _sbValue create_list(_sbVM* vm);
 
 /* Append an item to list */
 extern _sbVList* append_list(_sbVList* list, _sbValue value);
+
+/* Insert an item into list */
+extern _sbVList* insert_list(_sbVList* list, int index, _sbValue value);
 
 /* Pop an item from list */
 extern _sbVList* pop_list(_sbVList* list);
