@@ -2900,7 +2900,7 @@ end_of_create_struct:
                 idx = list.as.list->count + idx;
             }
 
-            if (idx >= (int)list.as.list->count) {
+            if (idx < 0 || idx >= (int)list.as.list->count) {
                 vm_error(vm, VM_INDEX_OUT_OF_BOUNDS, "List index out of bounds");
                 free_value_gc(vm, index);
                 free_value_gc(vm, list);

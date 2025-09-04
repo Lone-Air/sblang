@@ -166,7 +166,7 @@ static _sbValue builtin_insert_list(_sbVM* vm, _sbValue* args, int arg_count) {
             index = args[0].as.list->count + index;
         }
 
-        if (index >= args[0].as.list->count) {
+        if (index < 0 || index >= args[0].as.list->count) {
             vm_error(vm, VM_INDEX_OUT_OF_BOUNDS, "insert_list(): index out of bounds");
             return create_null();
         }
