@@ -24,7 +24,7 @@ static char* c2s(char c) {
 char* double_to_string(double value) {
     // Temporary buffer
     char temp[350];
-    int len = sprintf(temp, "%g", value);
+    int len = snprintf(temp, 350, "%g", value);
 
     // Real length of buffer
     char* result = (char*)malloc((len + 1) * sizeof(char));
