@@ -39,6 +39,7 @@ static char* get_output_filename(const char* input_file);
 
 int main(int argc, char** argv) {
     /* Parse command line arguments */
+    init_repl_check_syntax();
     Options options = parse_arguments(argc, argv);
     
     if (options.file_count == 0) {

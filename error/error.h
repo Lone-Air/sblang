@@ -12,8 +12,11 @@
 #include "../vm/vm.h"
 
 extern bool syntaxErrorDetector;
+extern bool errorDetector;
 
 extern void reset_error();
+extern void replcs(bool b);
+extern void init_repl_check_syntax();
 
 extern void lexError(const char* errinfo, int c, int l);
 extern void memoryError(Parser* parser, const char* errinfo);

@@ -10,6 +10,8 @@
 
 #include "../vm/vm.h"
 
-void register_builtin_functions(_sbVM* vm);
+extern char* sep_s;
+
+extern void register_builtin_functions(_sbVM* vm);
 
 #endif

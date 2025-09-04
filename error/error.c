@@ -11,6 +11,15 @@
 #include <stdlib.h>
 
 bool syntaxErrorDetector;
+bool repl_check_syntax;
+
+void init_repl_check_syntax() {
+    repl_check_syntax = false;
+}
+
+void replcs(bool b) {
+    repl_check_syntax = b;
+}
 
 void reset_error() {
     syntaxErrorDetector = false;
@@ -35,6 +44,8 @@ void memoryError(Parser* parser, const char* errinfo){
 }
 
 void syntaxError(Parser* parser, const char* format, ...) {
+    if (repl_check_syntax)
+        return;
     syntaxErrorDetector = true;
     fprintf(stderr, "An error occurred during processing\n");
 

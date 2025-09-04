@@ -445,6 +445,8 @@ void destroy_vm(_sbVM* vm) {
     vm_cleanup_static_buffers(vm);
 
     free(vm);
+
+    free(sep_s);
 }
 
 /**

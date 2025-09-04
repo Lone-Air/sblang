@@ -12,6 +12,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+char* sep_s;
+
 static char* c2s(char c) {
     char* s = calloc(2, sizeof(char));
     *s = c;
@@ -63,7 +65,7 @@ static _sbValue builtin_print(_sbVM* vm, _sbValue* args, int arg_count) {
         }
 
         if (i < arg_count - 1) {
-            printf(" ");
+            printf("%s", sep_s);
         }
     }
     //printf("\n");
@@ -89,6 +91,23 @@ static _sbValue builtin_input(_sbVM* vm, _sbValue* args, int arg_count) {
         return create_string(vm, buffer);
     }
 
+    return create_null();
+}
+
+/* Built-in setsep function */
+static _sbValue builtin_setsep(_sbVM* vm, _sbValue* args, int arg_count) {
+    if (arg_count != 1) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "setsep() expects exactly 1 argument");
+        return create_null();
+    }
+
+    if (args[0].type != VAL_STRING) {
+        vm_error(vm, VM_TYPE_ERROR, "setsep() expects a string");
+        return create_null();
+    }
+
+    free(sep_s);
+    sep_s = _s_strdup(args[0].as.string);
     return create_null();
 }
 
@@ -384,8 +403,11 @@ static void register_builtin_variables(_sbVM* vm) {
 
 /* Register built-in functions */
 void register_builtin_functions(_sbVM* vm) {
+    sep_s = _s_strdup(" ");
+
     vm_register_native(vm, "print", builtin_print);
     vm_register_native(vm, "input", builtin_input);
+    vm_register_native(vm, "setsep", builtin_setsep);
     vm_register_native(vm, "len", builtin_len);
     vm_register_native(vm, "dupe", builtin_dupe);
     vm_register_native(vm, "append_list", builtin_append_list);
