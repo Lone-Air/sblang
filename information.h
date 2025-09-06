@@ -7,6 +7,6 @@
 #ifndef SBLANG_INFORMATION_H
 #define SBLANG_INFORMATION_H
 
-#define VERSION "1.3.0-patch1"
+#define VERSION "1.3.0-patch2"
 
 #endif //SBLANG_INFORMATION_H

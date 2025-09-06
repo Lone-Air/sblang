@@ -350,6 +350,10 @@ bool generate_expression(BytecodeGenerator* gen, ASTNode* node) {
     bytecode_set_source_pos(gen, node->source_line, node->source_column);
     
     switch (node->type) {
+        case _sbNOTHING:
+            emit_instruction(gen, OP_NOP);
+            return true;
+
         case _sbNUMBER_LITERAL:
             emit_instruction_with_num(gen, OP_PUSH_NUM, node->data.num_value);
             return true;

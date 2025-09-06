@@ -652,6 +652,7 @@ void run_repl() {
             freeTkList(tk);
             free_ast(ast);
             destroy_tkstate(parser);
+            continue;
         }
 
         vm_load_bytecode(vm, gen);
