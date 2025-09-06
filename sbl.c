@@ -215,7 +215,7 @@ static Options parse_arguments(int argc, char** argv) {
                 print_usage(argv[0]);
                 exit(0);
             }
-            else if (strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "--debug") == 0) {
+            else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "--debug") == 0) {
                 debugmode = true;
             }
             else if (strcmp(argv[i], "--repl") == 0) {
@@ -243,12 +243,12 @@ static void print_usage(const char* program_name) {
     printf("Create by Laman28 - Release under LGPL License\n");
     printf("Usage: %s [options] file1 [file2 ...]\n", program_name);
     printf("\nOptions:\n");
-    printf("  --repl          Start a sblang repl\n");
-    printf("  -d, --debug     Enable debugging for vm when vm shutdown\n");
-    printf("  -c              Compile only (generate .sbc files)\n");
-    printf("  -o <file>       Specify output file (only with single input file)\n");
-    printf("  -v, --version   Show version information\n");
-    printf("  -h, --help      Show this help message\n");
+    printf("  --repl            Start a sblang repl\n");
+    printf("  -d, -g, --debug   Enable debugging for vm when vm shutdown\n");
+    printf("  -c                Compile only (generate .sbc files)\n");
+    printf("  -o <file>         Specify output file (only with single input file)\n");
+    printf("  -v, --version     Show version information\n");
+    printf("  -h, --help        Show this help message\n");
     printf("\nExamples:\n");
     printf("  %s program.sb              Execute a source file\n", program_name);
     printf("  %s program.sbc             Execute a bytecode file\n", program_name);
