@@ -494,6 +494,7 @@ bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
                 return false;
             }
 
+            emit_instruction(gen, OP_PUSH_FALSE);
             emit_instruction_with_int(gen, OP_JUMP, (int)loop_end);
 
             return true;
