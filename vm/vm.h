@@ -15,6 +15,8 @@
 #define VM_INITIAL_CALL_STACK_SIZE 1024  /* Initial call stack depth */
 #define VM_INITIAL_SOURCE_FILE_PATH_STORAGE_SIZE 128  /* Initial sfp depth */
 #define VM_INITIAL_SOURCE_FILE_PATH_TRACEBACK_SIZE 256  /* Initial sf_traceback depth */
+#define VM_INITIAL_CHUNK_SIZE 16  /* Initial vm chunks depth */
+#define VM_INITIAL_CHUNK_TRACEBACK_SIZE 128  /* Initial vm chunks traceback depth */
 
 /* Value type enumeration */
 typedef enum {
@@ -26,7 +28,9 @@ typedef enum {
     VAL_NATIVE,             /* Native function type */
     VAL_STRUCT,             /* Struct definition type */
     VAL_STRUCT_INSTANCE,    /* Struct instance type */
-    VAL_LIST                /* List type */
+    VAL_LIST,                /* List type */
+
+    VAL_FREED                /* Freed value */
 } _sbValueType;
 
 /* Forward declarations */
@@ -46,6 +50,7 @@ typedef struct {
 
     char* source_code_file; /* Function defined in which file (for traceback) */
 
+    size_t chunk_id;
 } _sbVFunction;
 
 /* Struct definition */
@@ -131,10 +136,6 @@ typedef enum {
     VM_INVALID_OPCODE,      /* Invalid opcode */
     VM_UNDEFINED_MEMBER,    /* Undefined member */
     VM_NOT_A_STRUCT,        /* Not a struct type */
-
-    VM_MODULE_LOADED,       /* Module load successfully */
-
-    VM_FREED                /* Freed value */
 } VMError;
 
 /* Loaded shared library information */
@@ -143,10 +144,29 @@ typedef struct {
     char* name;                     /* Library name */
 } _sbLoadedLibrary;
 
+/* Instruction chunks */
+typedef struct {
+    size_t chunk_id;
+
+    Instruction* inst;
+    size_t chunk_pc;
+    size_t inst_count;
+} _sbSubChunk;
+
 /* Main VM structure */
 struct _sbVM {
     /* Instruction related */
-    Instruction* instructions;      /* Instructions array */
+
+    _sbSubChunk* chunks;
+    size_t chunk_id;
+    size_t chunk_count;
+    size_t chunk_capacity;
+
+    size_t* chunk_traceback;
+    size_t chunk_tb_count;
+    size_t chunk_traceback_capacity;
+
+    Instruction* instructions;      /* Instructions array (From chunks) */
     size_t instruction_count;       /* Instruction count */
     size_t pc;                      /* Program counter */
 
@@ -221,6 +241,12 @@ typedef struct {
 /* Create VM instance */
 extern _sbVM* create_vm();
 
+/* Chunk management */
+extern size_t new_chunk(_sbVM* vm);
+extern size_t step_chunk(_sbVM* vm, size_t chunk_id);
+extern size_t back_chunk(_sbVM* vm);
+extern size_t save_chunk(_sbVM* vm);
+
 /* enable debug for VM instance */
 extern void enable_debug(_sbVM* vm);
 
@@ -291,7 +317,7 @@ extern _sbValue create_string(_sbVM* vm, const char* str);
 extern _sbValue create_bool(bool b);
 
 /* Create function value */
-extern _sbValue create_function(_sbVM* vm, _sbVFunction* func);
+extern _sbValue create_function(_sbVM* vm, _sbVFunction* func, size_t chunk_id);
 
 /* Create native function value */
 extern _sbValue create_native(_sbNativeFunction func);

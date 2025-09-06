@@ -84,6 +84,8 @@ typedef enum {
     OP_RETURN,          /* Function return */
     OP_FUNC_START,      /* Function start marker */
     OP_FUNC_END,        /* Function end marker */
+    OP_FUNC_DEF,        /* Function definition */
+    OP_FUNC_SET_ARGS,    /* Function argument count */
 
     /* Code block instructions */
     OP_BLOCK_START,     /* Code block start */

@@ -22,8 +22,17 @@
 
 char* _s_strdup(const char* str) {
     if (!str) return nullptr;
+
+    if (str[0] == '\0') {
+        char* copy = (char*)calloc(1, sizeof(char));
+        if (copy) {
+            copy[0] = '\0';
+        }
+        return copy;
+    }
+
     size_t len = strlen(str) + 1;
-    char* copy = (char*)malloc(len);
+    char* copy = (char*)calloc(len, sizeof(char));
     if (copy) {
         memcpy(copy, str, len);
     }

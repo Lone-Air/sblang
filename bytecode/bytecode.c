@@ -700,12 +700,16 @@ bool generate_function(BytecodeGenerator* gen, ASTNode* node) {
         bytecode_error("Invalid function name");
         return false;
     }
+
+
+    emit_instruction_with_str(gen, OP_FUNC_DEF, name->data.str_value);
     
     size_t param_count = 0;
     if (params && params->type == _sbPARAMETER_LIST) {
         param_count = params->data.list.count;
     }
-    
+
+    emit_instruction_with_int(gen, OP_FUNC_SET_ARGS, param_count);
     emit_instruction_with_str(gen, OP_FUNC_START, name->data.str_value);
     
     // Register function after OP_FUNC_START so start_addr points to the first instruction of the function body
@@ -809,7 +813,7 @@ void print_bytecode(BytecodeGenerator* gen) {
             case OP_PUSH_IDENT: printf("PUSH_IDENT %s", inst->operand.str_value); break;
             case OP_PUSH_TRUE: printf("PUSH_TRUE"); break;
             case OP_PUSH_FALSE: printf("PUSH_FALSE"); break;
-            case OP_PUSH_NULL: printf("PUSH_nullptr"); break;
+            case OP_PUSH_NULL: printf("PUSH_NULL"); break;
             case OP_POP: printf("POP"); break;
             case OP_DUP: printf("DUP"); break;
             case OP_SWAP: printf("SWAP"); break;
@@ -844,6 +848,8 @@ void print_bytecode(BytecodeGenerator* gen) {
             case OP_JUMP_IF_TRUE: printf("JUMP_IF_TRUE %d", inst->operand.int_value); break;
             case OP_CALL: printf("CALL %d", inst->operand.int_value); break;
             case OP_RETURN: printf("RETURN"); break;
+            case OP_FUNC_DEF: printf("FUNC_DEF %s", inst->operand.str_value); break;
+            case OP_FUNC_SET_ARGS: printf("FUNC_SET_ARGS %d", inst->operand.int_value); break;
             case OP_FUNC_START: printf("FUNC_START %s", inst->operand.str_value); break;
             case OP_FUNC_END: printf("FUNC_END"); break;
             case OP_BLOCK_START: printf("BLOCK_START"); break;

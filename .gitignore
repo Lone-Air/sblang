@@ -12,3 +12,4 @@ lib/
 CLAUDE.md
 .claude
 vgcore*
+*.log

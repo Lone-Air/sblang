@@ -199,6 +199,15 @@ _sbVM* create_vm() {
     //printf("DEBUG: VM allocated, initializing fields\n");
 
     /* Initialize instruction-related fields */
+    vm->chunks = (_sbSubChunk*)malloc(sizeof(_sbSubChunk) * VM_INITIAL_CHUNK_SIZE);
+    vm->chunk_id = -1;
+    vm->chunk_count = 0;
+    vm->chunk_capacity = VM_INITIAL_CHUNK_SIZE;
+
+    vm->chunk_traceback = (size_t*)malloc(sizeof(int) * VM_INITIAL_CHUNK_TRACEBACK_SIZE);
+    vm->chunk_tb_count = 0;
+    vm->chunk_traceback_capacity = VM_INITIAL_CHUNK_TRACEBACK_SIZE;
+
     vm->instructions = nullptr;
     vm->instruction_count = 0;
     vm->pc = 0; // Program counter
@@ -227,7 +236,7 @@ _sbVM* create_vm() {
     vm->locals = nullptr;
 
     /* Initialize function and struct tables */
-    vm->functions = nullptr;
+    vm->functions = malloc(sizeof(_sbVFunction));
     vm->function_count = 0;
     vm->structs = nullptr;
     vm->struct_count = 0;
@@ -274,6 +283,76 @@ _sbVM* create_vm() {
 
     return vm;
 }
+
+/* Chunk management */
+extern size_t new_chunk(_sbVM* vm) {
+    if (!vm) return -1;
+
+    if (vm->chunk_count + 1 >= vm->chunk_capacity) {
+        vm->chunk_capacity = vm->chunk_capacity + VM_INITIAL_CHUNK_SIZE;
+        vm->chunks = (_sbSubChunk*)realloc(vm->chunks, vm->chunk_capacity * sizeof(_sbSubChunk));
+    }
+
+    vm->chunks[vm->chunk_count].inst = nullptr;
+    vm->chunks[vm->chunk_count].chunk_pc = 0;
+    vm->chunks[vm->chunk_count].inst_count = 0;
+    vm->chunks[vm->chunk_count].chunk_id = vm->chunk_count;
+
+    return vm->chunk_count++;
+}
+
+extern size_t step_chunk(_sbVM* vm, size_t chunk_id){
+    if (!vm) return -1;
+
+    if (vm->chunk_id != -1) {
+        if (vm->chunk_tb_count + 1 >= vm->chunk_traceback_capacity) {
+            vm->chunk_traceback_capacity = vm->chunk_traceback_capacity + VM_INITIAL_CHUNK_TRACEBACK_SIZE;
+            vm->chunk_traceback = (size_t*)realloc(vm->chunk_traceback, vm->chunk_traceback_capacity * sizeof(size_t));
+        }
+
+        save_chunk(vm);
+
+        vm->chunk_traceback[vm->chunk_tb_count] = vm->chunk_id;
+        vm->chunk_tb_count++;
+    }
+
+    vm->instructions = vm->chunks[chunk_id].inst;
+    vm->instruction_count = vm->chunks[chunk_id].inst_count;
+    vm->pc = vm->chunks[chunk_id].chunk_pc;
+    vm->chunk_id = chunk_id;
+
+    return chunk_id;
+}
+
+extern size_t back_chunk(_sbVM* vm) {
+    if (!vm) return -1;
+    if (vm->chunk_id == -1) return -1;
+
+    if (vm->chunk_tb_count < 1) return -1;
+
+    save_chunk(vm);
+
+    size_t id = vm->chunks[vm->chunk_traceback[vm->chunk_tb_count - 1]].chunk_id;
+    vm->instruction_count = vm->chunks[id].inst_count;
+    vm->pc = vm->chunks[id].chunk_pc;
+    vm->instructions = vm->chunks[id].inst;
+    vm->chunk_id = id;
+
+    vm->chunk_tb_count--;
+    return id;
+}
+
+extern size_t save_chunk(_sbVM* vm) {
+    if (!vm) return -1;
+    if (vm->chunk_id == -1) return -1;
+
+    vm->chunks[vm->chunk_id].chunk_pc = vm->pc;
+    vm->chunks[vm->chunk_id].inst_count = vm->instruction_count;
+    vm->chunks[vm->chunk_id].inst = vm->instructions;
+
+    return vm->chunk_id;
+}
+
 
 /**
  * Destroy virtual machine instance and free all resources
@@ -555,12 +634,12 @@ _sbValue create_bool(bool b) {
 /**
  * Create function value
  */
-_sbValue create_function(_sbVM* vm, _sbVFunction* func) {
+_sbValue create_function(_sbVM* vm, _sbVFunction* func, size_t chunk_id) {
     _sbValue val;
     val.type = VAL_FUNCTION;
     val.freed = false;
     val.as.function = func;
-    val.as.function->source_code_file = _s_strdup(vm->source_filename);
+    val.as.function->chunk_id = chunk_id;
     return val;
 }
 
@@ -836,7 +915,7 @@ static bool gc_remove_and_free(_sbVM* vm, void* ptr) {
  */
 static void gc_free_data_by_type(_sbVM* vm, _sbValueType type, void* data) {
     if (!data) return;
-    if (type == VM_FREED) return;
+    if (type == VAL_FREED) return;
 
     switch (type) {
         case VAL_STRING:
@@ -931,7 +1010,7 @@ void free_value_gc(_sbVM* vm, _sbValue value) {
             break;
     }
 
-    value.type = VM_FREED;
+    value.type = VAL_FREED;
 }
 
 /**
@@ -989,7 +1068,7 @@ void free_value(_sbValue value) {
             break; // Other types don't need special handling
     }
 
-    value.type = VM_FREED;
+    value.type = VAL_FREED;
 }
 
 /* ========== Error Handling Functions ========== */
@@ -1073,73 +1152,79 @@ void vm_print_status(_sbVM* vm) {
     printf("=== Debugging outputs ===\n");
 
     printf("\n=== Bytecode ===\n");
-    printf("Total instructions: %zu\n\n", vm->instruction_count);
+    for (size_t c = 0; c < vm->chunk_count; c++) {
+        step_chunk(vm, c);
+        printf("\n--- Chunk %d instructions: %zu\n\n", c, vm->instruction_count);
 
-    for (size_t i = 0; i < vm->instruction_count; i++) {
-        Instruction* inst = &(vm->instructions[i]);
-        if (!inst) continue;
+        for (size_t i = 0; i < vm->instruction_count; i++) {
+            Instruction* inst = &(vm->instructions[i]);
+            if (!inst) continue;
 
-        printf("%06zx: ", i);
+            printf("%06zx: ", i);
 
-        switch (inst->opcode) {
-            case OP_NOP: printf("NOP"); break;
-            case OP_PUSH_NUM: printf("PUSH_NUM %.6f", inst->operand.num_value); break;
-            case OP_PUSH_STR: printf("PUSH_STR \"%s\"", inst->operand.str_value); break;
-            case OP_PUSH_IDENT: printf("PUSH_IDENT %s", inst->operand.str_value); break;
-            case OP_PUSH_TRUE: printf("PUSH_TRUE"); break;
-            case OP_PUSH_FALSE: printf("PUSH_FALSE"); break;
-            case OP_PUSH_NULL: printf("PUSH_NULL"); break;
-            case OP_POP: printf("POP"); break;
-            case OP_DUP: printf("DUP"); break;
-            case OP_SWAP: printf("SWAP"); break;
-            case OP_ADD: printf("ADD"); break;
-            case OP_SUB: printf("SUB"); break;
-            case OP_MUL: printf("MUL"); break;
-            case OP_DIV: printf("DIV"); break;
-            case OP_MOD: printf("MOD"); break;
-            case OP_POW: printf("POW"); break;
-            case OP_BIT_AND: printf("BIT_AND"); break;
-            case OP_BIT_OR: printf("BIT_OR"); break;
-            case OP_BIT_XOR: printf("BIT_XOR"); break;
-            case OP_BIT_NOT: printf("BIT_NOT"); break;
-            case OP_BIT_LSHIFT: printf("BIT_LSHIFT"); break;
-            case OP_BIT_RSHIFT: printf("BIT_RSHIFT"); break;
-            case OP_LOGIC_AND: printf("LOGIC_AND"); break;
-            case OP_LOGIC_OR: printf("LOGIC_OR"); break;
-            case OP_LOGIC_NOT: printf("LOGIC_NOT"); break;
-            case OP_EQ: printf("EQ"); break;
-            case OP_NEQ: printf("NEQ"); break;
-            case OP_LT: printf("LT"); break;
-            case OP_GT: printf("GT"); break;
-            case OP_LEQ: printf("LEQ"); break;
-            case OP_GEQ: printf("GEQ"); break;
-            case OP_ASSIGN: printf("ASSIGN"); break;
-            case OP_LOAD_VAR: printf("LOAD_VAR %s", inst->operand.str_value); break;
-            case OP_STORE_VAR: printf("STORE_VAR %s", inst->operand.str_value); break;
-            case OP_LOAD_GLOBAL: printf("LOAD_GLOBAL %s", inst->operand.str_value); break;
-            case OP_STORE_GLOBAL: printf("STORE_GLOBAL %s", inst->operand.str_value); break;
-            case OP_JUMP: printf("JUMP %d", inst->operand.int_value); break;
-            case OP_JUMP_IF_FALSE: printf("JUMP_IF_FALSE %d", inst->operand.int_value); break;
-            case OP_JUMP_IF_TRUE: printf("JUMP_IF_TRUE %d", inst->operand.int_value); break;
-            case OP_CALL: printf("CALL %d", inst->operand.int_value); break;
-            case OP_RETURN: printf("RETURN"); break;
-            case OP_FUNC_START: printf("FUNC_START %s", inst->operand.str_value); break;
-            case OP_FUNC_END: printf("FUNC_END"); break;
-            case OP_BLOCK_START: printf("BLOCK_START"); break;
-            case OP_BLOCK_END: printf("BLOCK_END"); break;
-            case OP_LOAD_MODULE: printf("LOAD_MODULE %s", inst->operand.str_value); break;
-            case OP_STRUCT_DEF: printf("STRUCT_DEF %s", inst->operand.str_value); break;
-            case OP_STRUCT_NEW: printf("STRUCT_NEW %s", inst->operand.str_value); break;
-            case OP_MEMBER_ACCESS: printf("MEMBER_ACCESS %s", inst->operand.str_value); break;
-            case OP_MEMBER_STORE: printf("MEMBER_STORE %s", inst->operand.str_value); break;
-            case OP_LIST_NEW: printf("LIST_NEW %d", inst->operand.int_value); break;
-            case OP_LIST_ACCESS: printf("LIST_ACCESS"); break;
-            case OP_LIST_STORE: printf("LIST_STORE"); break;
-            case OP_LIST_PUSH: printf("LIST_PUSH"); break;
-            case OP_HALT: printf("HALT"); break;
-            default: printf("UNKNOWN_OP %d", inst->opcode); break;
+            switch (inst->opcode) {
+                case OP_NOP: printf("NOP"); break;
+                case OP_PUSH_NUM: printf("PUSH_NUM %.6f", inst->operand.num_value); break;
+                case OP_PUSH_STR: printf("PUSH_STR \"%s\"", inst->operand.str_value); break;
+                case OP_PUSH_IDENT: printf("PUSH_IDENT %s", inst->operand.str_value); break;
+                case OP_PUSH_TRUE: printf("PUSH_TRUE"); break;
+                case OP_PUSH_FALSE: printf("PUSH_FALSE"); break;
+                case OP_PUSH_NULL: printf("PUSH_NULL"); break;
+                case OP_POP: printf("POP"); break;
+                case OP_DUP: printf("DUP"); break;
+                case OP_SWAP: printf("SWAP"); break;
+                case OP_ADD: printf("ADD"); break;
+                case OP_SUB: printf("SUB"); break;
+                case OP_MUL: printf("MUL"); break;
+                case OP_DIV: printf("DIV"); break;
+                case OP_MOD: printf("MOD"); break;
+                case OP_POW: printf("POW"); break;
+                case OP_BIT_AND: printf("BIT_AND"); break;
+                case OP_BIT_OR: printf("BIT_OR"); break;
+                case OP_BIT_XOR: printf("BIT_XOR"); break;
+                case OP_BIT_NOT: printf("BIT_NOT"); break;
+                case OP_BIT_LSHIFT: printf("BIT_LSHIFT"); break;
+                case OP_BIT_RSHIFT: printf("BIT_RSHIFT"); break;
+                case OP_LOGIC_AND: printf("LOGIC_AND"); break;
+                case OP_LOGIC_OR: printf("LOGIC_OR"); break;
+                case OP_LOGIC_NOT: printf("LOGIC_NOT"); break;
+                case OP_EQ: printf("EQ"); break;
+                case OP_NEQ: printf("NEQ"); break;
+                case OP_LT: printf("LT"); break;
+                case OP_GT: printf("GT"); break;
+                case OP_LEQ: printf("LEQ"); break;
+                case OP_GEQ: printf("GEQ"); break;
+                case OP_ASSIGN: printf("ASSIGN"); break;
+                case OP_LOAD_VAR: printf("LOAD_VAR %s", inst->operand.str_value); break;
+                case OP_STORE_VAR: printf("STORE_VAR %s", inst->operand.str_value); break;
+                case OP_LOAD_GLOBAL: printf("LOAD_GLOBAL %s", inst->operand.str_value); break;
+                case OP_STORE_GLOBAL: printf("STORE_GLOBAL %s", inst->operand.str_value); break;
+                case OP_JUMP: printf("JUMP %d", inst->operand.int_value); break;
+                case OP_JUMP_IF_FALSE: printf("JUMP_IF_FALSE %d", inst->operand.int_value); break;
+                case OP_JUMP_IF_TRUE: printf("JUMP_IF_TRUE %d", inst->operand.int_value); break;
+                case OP_CALL: printf("CALL %d", inst->operand.int_value); break;
+                case OP_RETURN: printf("RETURN"); break;
+                case OP_FUNC_DEF: printf("FUNC_DEF %s", inst->operand.str_value); break;
+                case OP_FUNC_SET_ARGS: printf("FUNC_SET_ARGS %d", inst->operand.int_value); break;
+                case OP_FUNC_START: printf("FUNC_START %s", inst->operand.str_value); break;
+                case OP_FUNC_END: printf("FUNC_END"); break;
+                case OP_BLOCK_START: printf("BLOCK_START"); break;
+                case OP_BLOCK_END: printf("BLOCK_END"); break;
+                case OP_LOAD_MODULE: printf("LOAD_MODULE %s", inst->operand.str_value); break;
+                case OP_STRUCT_DEF: printf("STRUCT_DEF %s", inst->operand.str_value); break;
+                case OP_STRUCT_NEW: printf("STRUCT_NEW %s", inst->operand.str_value); break;
+                case OP_MEMBER_ACCESS: printf("MEMBER_ACCESS %s", inst->operand.str_value); break;
+                case OP_MEMBER_STORE: printf("MEMBER_STORE %s", inst->operand.str_value); break;
+                case OP_LIST_NEW: printf("LIST_NEW %d", inst->operand.int_value); break;
+                case OP_LIST_ACCESS: printf("LIST_ACCESS"); break;
+                case OP_LIST_STORE: printf("LIST_STORE"); break;
+                case OP_LIST_PUSH: printf("LIST_PUSH"); break;
+                case OP_HALT: printf("HALT"); break;
+                default: printf("UNKNOWN_OP %d", inst->opcode); break;
+            }
+            printf("\n");
         }
-        printf("\n");
+        back_chunk(vm);
     }
 
     if (vm->functions) {
@@ -1147,8 +1232,8 @@ void vm_print_status(_sbVM* vm) {
             printf("\n=== Functions ===\n");
             for (size_t i = 0; i < vm->function_count; i++) {
                 _sbVFunction func = vm->functions[i];
-                printf("  %s (params: %zu, addr: %zu, from: %s)\n",
-                    func.name, func.param_count, func.start_addr, func.source_code_file);
+                printf("  %s (params: %zu, addr: %zu, block: %lu, from: %s)\n",
+                    func.name, func.param_count, func.start_addr, func.chunk_id, func.source_code_file);
             }
         }
     }
@@ -1601,27 +1686,30 @@ static bool load_bytecode_file(_sbVM* vm, const char* filename, const char* modu
 
     /* Load and execute module bytecode */
     /* Append module instructions to main program */
-    size_t offset = vm->instruction_count;  // Save current instruction count as offset
+    /*size_t offset = vm->instruction_count;  // Save current instruction count as offset
     if (!append_module_instructions(vm, gen, offset)) {
         destroy_bytecode_generator(gen);
         vm_back_source_info(vm);
         vm_error(vm, VM_LOAD_ERROR, "Failed to combine module instructions");
         return false;
-    }
+    }*/
 
     //printf("Loading module: %s\n", module_name);
 
     /* Execute module initialization code (from offset to end) */
-    size_t saved_pc = vm->pc;
+    //size_t saved_pc = vm->pc;
 
     //printf("DEBUG: Executing module from PC=%zu to PC=%zu\n", offset, vm->instruction_count - 1);
 
     // Skip the HALT instruction that separates main program from module
-    if (offset > 0 && vm->instructions[offset].opcode == OP_HALT) {
+    /*if (offset > 0 && vm->instructions[offset].opcode == OP_HALT) {
         offset++;  // Skip the HALT to start at actual module code
     }
 
     vm->pc = offset;  // Start executing from the module's first instruction
+    */
+    size_t id = new_chunk(vm);
+    step_chunk(vm, id);
     VMError result = vm_execute(vm);
 
     if (result != VM_OK) {
@@ -1634,7 +1722,8 @@ static bool load_bytecode_file(_sbVM* vm, const char* filename, const char* modu
 
     /* Restore PC to continue main program execution */
 
-    vm->pc = saved_pc;
+    //vm->pc = saved_pc;
+    back_chunk(vm);
     vm_back_source_info(vm);
 
     /* Clean up resources */
@@ -1645,7 +1734,7 @@ static bool load_bytecode_file(_sbVM* vm, const char* filename, const char* modu
 
 /**
  * Append module instructions to VM
- */
+ *//*
 static bool append_module_instructions(_sbVM* vm, BytecodeGenerator* gen, size_t offset) {
     if (!vm || !gen) return false;
 
@@ -1741,7 +1830,7 @@ static bool append_module_instructions(_sbVM* vm, BytecodeGenerator* gen, size_t
     vm->instruction_count = new_count;
 
     return true;
-}
+}*/
 
 /**
  * Load source file and compile
@@ -1807,7 +1896,7 @@ static bool load_source_file(_sbVM* vm, const char* filename, const char* module
     }
 
     /* Append module instructions to main program */
-    size_t offset = vm->instruction_count;  // Save current instruction count as offset
+    /*size_t offset = vm->instruction_count;  // Save current instruction count as offset
     if (!append_module_instructions(vm, gen, offset)) {
         destroy_bytecode_generator(gen);
         free_ast(ast);
@@ -1817,21 +1906,25 @@ static bool load_source_file(_sbVM* vm, const char* filename, const char* module
         vm_back_source_info(vm);
         vm_error(vm, VM_LOAD_ERROR, "Failed to combine module instructions");
         return false;
-    }
+    }*/
 
     //printf("Loading module: %s\n", module_name);
 
     /* Execute module initialization code (from offset to end) */
-    size_t saved_pc = vm->pc;
+    //size_t saved_pc = vm->pc;
 
     //printf("DEBUG: Executing module from PC=%zu to PC=%zu\n", offset, vm->instruction_count - 1);
 
     // Skip the HALT instruction that separates main program from module
-    if (offset > 0 && vm->instructions[offset].opcode == OP_HALT) {
+    /*if (offset > 0 && vm->instructions[offset].opcode == OP_HALT) {
         offset++;  // Skip the HALT to start at actual module code
     }
 
     vm->pc = offset;  // Start executing from the module's first instruction
+    */
+    //size_t id = new_chunk(vm);
+    //step_chunk(vm, id);
+    vm_load_bytecode(vm, gen);
     VMError result = vm_execute(vm);
 
     if (result != VM_OK) {
@@ -1844,7 +1937,8 @@ static bool load_source_file(_sbVM* vm, const char* filename, const char* module
 
     /* Restore PC to continue main program execution */
 
-    vm->pc = saved_pc;
+    //vm->pc = saved_pc;
+    back_chunk(vm);
     vm_back_source_info(vm);
 
     /* Clean up resources */
@@ -2021,6 +2115,8 @@ VMError vm_execute_instruction(_sbVM* vm) {
 
     Instruction* inst = &vm->instructions[vm->pc++];
 
+    save_chunk(vm);
+
     switch (inst->opcode) {
         case OP_NOP:
             // No operation
@@ -2083,7 +2179,7 @@ VMError vm_execute_instruction(_sbVM* vm) {
             else if (a.type == VAL_STRING && b.type == VAL_STRING) {
                 // String concatenation
                 size_t len = strlen(a.as.string) + strlen(b.as.string) + 1;
-                char* result = (char*)calloc(sizeof(char), len);
+                char* result = (char*)calloc(len, sizeof(char));
                 if (result) {
                     strcpy(result, a.as.string);
                     strcat(result, b.as.string);
@@ -2552,10 +2648,14 @@ VMError vm_execute_instruction(_sbVM* vm) {
                     }
 
                     // Jump to function body
-                    vm->pc = func->start_addr;
+                    //vm->pc = func->start_addr;
                     if (func->source_code_file) {
                         vm_set_source_info(vm, func->source_code_file, false);
                     }
+
+                    step_chunk(vm, func->chunk_id);
+                    vm_execute(vm);
+                    back_chunk(vm);
                 }
                 else {
                     vm_error(vm, VM_TYPE_ERROR, "'%s' is not a function", func_name.as.string);
@@ -2616,12 +2716,14 @@ VMError vm_execute_instruction(_sbVM* vm) {
 
         case OP_FUNC_START:
         case OP_FUNC_END:
+        case OP_FUNC_SET_ARGS:
+        case OP_FUNC_DEF:
             // Function definition start/end (skip function body execution)
-            while (vm->pc < vm->instruction_count &&
+            /*while (vm->pc < vm->instruction_count &&
                    vm->instructions[vm->pc].opcode != OP_FUNC_END) {
                 vm->pc++;
             }
-            if (vm->pc < vm->instruction_count) vm->pc++;
+            if (vm->pc < vm->instruction_count) vm->pc++;*/
             break;
 
         case OP_BLOCK_START:
@@ -2924,8 +3026,8 @@ end_of_create_struct:
 
         case OP_HALT:
             // Stop execution
-            if (vm->pc == vm->end_pc)
-                vm->running = false; // End program
+            //if (vm->pc == vm->end_pc)
+            //    vm->running = false; // End program
             return VM_OK;
 
         default:
@@ -2967,17 +3069,33 @@ VMError vm_execute(_sbVM* vm) {
 bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
     if (!vm || !gen) return false;
 
-    vm->instruction_count = gen->instructions->count;
-    vm->instructions = (Instruction*)malloc(vm->instruction_count * sizeof(Instruction));
+    //print_bytecode(gen);
+
+    size_t jmp_offset = 0;
+
+    size_t id = new_chunk(vm);
+    step_chunk(vm, id);
+
+    //vm->instruction_count = gen->instructions->count;
+    vm->instructions = (Instruction*)calloc(1, sizeof(Instruction));
     if (!vm->instructions) {
         vm_error(vm, VM_MEMORY_ERROR, "Failed to allocate instruction memory");
+        back_chunk(vm);
         return false;
     }
 
     // Copy instructions
-    for (size_t i = 0; i < vm->instruction_count; i++) {
+    for (size_t i = 0; i < gen->instructions->count; i++) {
+        vm->instruction_count ++;
+        vm->instructions = realloc(vm->instructions, (vm->instruction_count) * sizeof(Instruction));
+        //memset(&vm->instructions[vm->instruction_count - 1], 0, sizeof(Instruction));
         Instruction* src = (Instruction*)gen->instructions->items[i];
-        vm->instructions[i] = *src;
+        if (!src) break;
+
+        if (src->opcode == OP_HALT) {
+            vm->instructions[vm->instruction_count - 1] = *src;
+            break;
+        }
 
         // Copy string operands
         if (src->opcode == OP_PUSH_STR || src->opcode == OP_PUSH_IDENT ||
@@ -2987,13 +3105,90 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
             src->opcode == OP_MEMBER_ACCESS || src->opcode == OP_MEMBER_STORE ||
             src->opcode == OP_LOAD_GLOBAL || src->opcode == OP_STORE_GLOBAL) {
             if (src->operand.str_value) {
-                vm->instructions[i].operand.str_value = _s_strdup(src->operand.str_value);
+                vm->instructions[vm->instruction_count - 1] = *src;
+                vm->instructions[vm->instruction_count - 1].operand.str_value = _s_strdup(src->operand.str_value);
+                continue;
             }
         }
+
+        if (src->opcode == OP_JUMP || src->opcode == OP_JUMP_IF_FALSE ||
+            src->opcode == OP_JUMP_IF_TRUE ) {
+            vm->instructions[vm->instruction_count - 1] = *src;
+            vm->instructions[vm->instruction_count - 1].operand.int_value = src->operand.int_value - jmp_offset;
+            continue;
+        }
+
+        if (src->opcode == OP_FUNC_DEF) {
+            vm->instruction_count --;
+            size_t function_chunk = new_chunk(vm);
+            step_chunk(vm, function_chunk);
+
+            vm->instructions = (Instruction*)calloc(1, sizeof(Instruction));
+            size_t inst_count = 0;
+            size_t param_count = 0;
+
+            while (true) { // Save function in a new chunk
+                Instruction* _src = (Instruction*)gen->instructions->items[i];
+                jmp_offset++;
+                i++;
+
+                if (_src->opcode == OP_FUNC_DEF) continue;
+
+                if (_src->opcode == OP_FUNC_SET_ARGS) {
+                    param_count = _src->operand.int_value;
+                    continue;
+                }
+
+                vm->instructions = realloc(vm->instructions, (vm->instruction_count + 1) * sizeof(Instruction));
+
+                // Copy string operands
+                if (_src->opcode == OP_PUSH_STR || _src->opcode == OP_PUSH_IDENT ||
+                    _src->opcode == OP_LOAD_VAR || _src->opcode == OP_STORE_VAR ||
+                    _src->opcode == OP_LOAD_MODULE || _src->opcode == OP_FUNC_START ||
+                    _src->opcode == OP_STRUCT_DEF || _src->opcode == OP_STRUCT_NEW ||
+                    _src->opcode == OP_MEMBER_ACCESS || _src->opcode == OP_MEMBER_STORE ||
+                    _src->opcode == OP_LOAD_GLOBAL || _src->opcode == OP_STORE_GLOBAL) {
+                    if (src->operand.str_value) {
+                        vm->instructions[vm->instruction_count] = *_src;
+                        vm->instructions[vm->instruction_count].operand.str_value = _s_strdup(_src->operand.str_value);
+                    }
+                }
+                else if (_src->opcode == OP_JUMP || _src->opcode == OP_JUMP_IF_FALSE ||
+                    _src->opcode == OP_JUMP_IF_TRUE ) {
+                    vm->instructions[vm->instruction_count] = *_src;
+                    vm->instructions[vm->instruction_count].operand.int_value = _src->operand.int_value - jmp_offset;
+                }
+                else
+                    vm->instructions[vm->instruction_count] = *_src;
+
+                vm->instruction_count ++;
+
+                if (_src->opcode == OP_FUNC_END)
+                    break;
+            }
+            back_chunk(vm);
+
+            vm->function_count++;
+            vm->functions = (_sbVFunction*)realloc(vm->functions, vm->function_count * sizeof(_sbVFunction));
+
+            vm->functions[vm->function_count - 1].name = _s_strdup(src->operand.str_value);
+            vm->functions[vm->function_count - 1].param_count = param_count;
+            vm->functions[vm->function_count - 1].locals = nullptr;
+            vm->functions[vm->function_count - 1].start_addr = 0;
+            vm->functions[vm->function_count - 1].source_code_file = _s_strdup(vm->source_filename);
+
+            _sbValue func_val = create_function(vm, &vm->functions[vm->function_count - 1], function_chunk);
+            vm_define_global(vm, vm->functions[vm->function_count - 1].name, func_val);
+
+            i--;
+            continue;
+        }
+
+        vm->instructions[vm->instruction_count - 1] = *src;
     }
 
     // Load function definitions and register them as global variables
-    if (gen->functions && gen->functions->count > 0) {
+    /*if (gen->functions && gen->functions->count > 0) {
         vm->function_count = gen->functions->count;
         vm->functions = (_sbVFunction*)malloc(vm->function_count * sizeof(_sbVFunction));
 
@@ -3008,7 +3203,7 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
             _sbValue func_val = create_function(vm, &vm->functions[i]);
             vm_define_global(vm, vm->functions[i].name, func_val);
         }
-    }
+    }*/
 
     // Load struct definitions
     if (gen->structs && gen->structs->count > 0) {
@@ -3042,9 +3237,10 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
 
     vm->pc = 0;
 
-    if (vm->running == false)
-        vm->end_pc = vm->instruction_count;
+    /*if (vm->running == false)
+        vm->end_pc = vm->instruction_count;*/
 
+    save_chunk(vm);
     return true;
 }
 
@@ -3208,7 +3404,7 @@ void* gc_alloc(_sbVM* vm, size_t size, _sbValueType type) {
     }
 
     // Allocate GC object header
-    _sbGCObject* obj = (_sbGCObject*)calloc(sizeof(_sbGCObject), 1);
+    _sbGCObject* obj = (_sbGCObject*)calloc(1, sizeof(_sbGCObject));
     if (!obj) return nullptr;
 
     // Allocate the actual data

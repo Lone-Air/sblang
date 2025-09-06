@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 4.0)
 
 project(SBLang)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c23 -O3 -g")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c23 -g")
 
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
