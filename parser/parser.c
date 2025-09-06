@@ -8,6 +8,7 @@
 #include "parser.h"
 
 #include <ctype.h>
+#include <assert.h>
 
 #include "../error/error.h"
 
@@ -41,7 +42,9 @@ char* _s_strdup(const char* str) {
 
 _sbTkState* create_tkstate(_sbToken* tk) {
     auto st = (_sbTkState*)malloc(sizeof(_sbTkState)); // Initialize
+    assert(st != nullptr);
     st->tk = (_sbToken*)malloc(sizeof(_sbToken));
+    assert(st->tk != nullptr);
 
     _sbToken* tk_s = tk;
 
@@ -49,8 +52,9 @@ _sbTkState* create_tkstate(_sbToken* tk) {
     _sbToken tkc;
     while ((tkc = *(tk ++)).type != _sbEnd) {
         st->tk = (_sbToken*)realloc(st->tk,(size + 1) * sizeof(_sbToken));
-        if (st->tk == nullptr) return nullptr;
+        assert(st->tk != nullptr);
         st->tk[size].tk = (char*)malloc(sizeof(char) * (strlen(tkc.tk) + 1)); // Duplicate token
+        assert(st->tk[size].tk != nullptr);
         strcpy(st->tk[size].tk, tkc.tk);
         st->tk[size].type = tkc.type;
         st->tk[size].line = tkc.line;
@@ -59,7 +63,7 @@ _sbTkState* create_tkstate(_sbToken* tk) {
     }
 
     st->tk = (_sbToken*)realloc(st->tk,(size + 1) * sizeof(_sbToken));
-    if (st->tk == nullptr) return nullptr;
+    assert(st->tk != nullptr);
     st->tk[size].tk = nullptr; // End of token state
     st->tk[size].type = _sbEnd;
 
@@ -174,7 +178,7 @@ ASTNode* parse_program(Parser* parser) {
         } else {
             // Invalid token
             if (peek(parser)) {
-                fprintf(stderr,"-- Stopped: error appeared during processing\n");
+                //fprintf(stderr,"-- Stopped: error appeared during processing\n");
                 free_ast(stmt);
                 free_ast(program);
                 return nullptr;
@@ -874,6 +878,7 @@ ASTNode* parse_assignment(Parser* parser) {
 
 // Statement block
 ASTNode* parse_block(Parser* parser) {
+    incomplete_syntax = true;
     bool multiline = true;
     if (!match_token(parser, "{"))
         multiline = false;
@@ -920,6 +925,7 @@ ASTNode* parse_block(Parser* parser) {
         }
     }
 
+    incomplete_syntax = false;
     return block;
 }
 

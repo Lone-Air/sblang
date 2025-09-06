@@ -13,6 +13,7 @@
 extern char* sep_s;
 
 extern char* double_to_string(double value);
+extern _sbValue toString(_sbVM* vm, _sbValue value);
 extern void register_builtin_functions(_sbVM* vm);
 
 #endif

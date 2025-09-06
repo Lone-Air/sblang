@@ -1,0 +1,5 @@
+function single_access(param){
+    print(param);
+}
+
+single_access(555);

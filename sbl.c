@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
+#include <assert.h>
 #include <unistd.h>
 #include "vm/vm.h"
 #include "bytecode/bytecode.h"
@@ -15,9 +15,51 @@
 #include "lexer/lexer.h"
 #include "error/error.h"
 #include "information.h"
+#include "builtin/base_functions.h"
+
+#ifdef ENABLE_READLINE
+#include <readline/readline.h>
+#include <readline/history.h>
+#endif
+
+#if defined(__clang__)
+#define COMPILER_INFORMATION "Clang"
+#elif defined(__ICC) || defined(__INTEL_COMPILER)
+#define COMPILER_INFORMATION "Intel ICC"
+#elif defined(__GNUC__) || defined(__GNUG__)
+#define COMPILER_INFORMATION "GCC"
+#elif defined(_MSC_VER)
+#define COMPILER_INFORMATION "MSVC"
+#else
+#define COMPILER_INFORMATION "Unknown Compiler"
+#endif
+
+static void print_compiler_version() {
+#if defined(__clang__)
+    printf("%d.%d.%d", __clang_major__, __clang_minor__, __clang_patchlevel__);
+#elif defined(__GNUC__)
+    printf("%d.%d.%d", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+#elif defined(_MSC_VER)
+    printf("%d", _MSC_VER);
+#else
+    printf("unknown");
+#endif
+}
+
+#if defined(_WIN32) || defined(_WIN64)
+#define COMPILED_FOR_PLATFORM "nt"
+#elif defined(__linux__) || defined(__unix__)
+#define COMPILED_FOR_PLATFORM "posix"
+#elif defined(__APPLE__) && defined(__MACH__)
+#define COMPILED_FOR_PLATFORM "darwin"
+#else
+#define COMPILED_FOR_PLATFORM "unknown"
+#endif
 
 // Debug mode
 bool debugmode = false;
+// Enable repl
+bool start_repl = false;
 
 /* Command line options structure */
 typedef struct {
@@ -36,26 +78,33 @@ static bool execute_file(const char* input_file);
 static bool is_bytecode_file(const char* filename);
 static bool file_exists(const char* filename);
 static char* get_output_filename(const char* input_file);
+static void run_repl();
 
 int main(int argc, char** argv) {
     /* Parse command line arguments */
     init_repl_check_syntax();
     Options options = parse_arguments(argc, argv);
+
+    bool success = true;
     
     if (options.file_count == 0) {
-        fprintf(stderr, "Error: No input files specified\n");
-        print_usage(argv[0]);
-        return 1;
+        //fprintf(stderr, "Error: No input files specified\n");
+        //print_usage(argv[0]);
+        start_repl = true;
+    }
+
+    if (start_repl) {
+        run_repl();
+        goto clean_memory;
     }
     
     /* Check for multiple files with -o option */
     if (options.compile_only && options.output_file && options.file_count > 1) {
+        success = false;
         fprintf(stderr, "Error: Cannot specify output file with multiple input files\n");
-        return 1;
+        goto clean_memory;
     }
-    
-    bool success = true;
-    
+
     /* Process each input file */
     for (int i = 0; i < options.file_count; i++) {
         const char* input_file = options.input_files[i];
@@ -97,9 +146,11 @@ int main(int argc, char** argv) {
             if (!options.output_file && output_file) {
                 free(output_file);
             }
-        } else {
+        }
+        else {
             /* Execute mode */
-            printf("--- Running '%s'...\n", input_file);
+            if (options.file_count > 1)
+                printf("--- Running '%s'...\n", input_file);
             
             if (!execute_file(input_file)) {
                 fprintf(stderr, "Error: Failed to execute '%s'\n", input_file);
@@ -118,6 +169,7 @@ int main(int argc, char** argv) {
     }
     
     /* Clean up */
+clean_memory:
     if (options.input_files) {
         free(options.input_files);
     }
@@ -166,6 +218,9 @@ static Options parse_arguments(int argc, char** argv) {
             else if (strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "--debug") == 0) {
                 debugmode = true;
             }
+            else if (strcmp(argv[i], "--repl") == 0) {
+                start_repl = true;
+            }
             else {
                 fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
                 print_usage(argv[0]);
@@ -188,6 +243,7 @@ static void print_usage(const char* program_name) {
     printf("Create by Laman28 - Release under LGPL License\n");
     printf("Usage: %s [options] file1 [file2 ...]\n", program_name);
     printf("\nOptions:\n");
+    printf("  --repl          Start a sblang repl\n");
     printf("  -d, --debug     Enable debugging for vm when vm shutdown\n");
     printf("  -c              Compile only (generate .sbc files)\n");
     printf("  -o <file>       Specify output file (only with single input file)\n");
@@ -340,7 +396,8 @@ static bool execute_file(const char* input_file) {
             fprintf(stderr, "Error: Failed to load bytecode from '%s'\n", input_file);
             return false;
         }
-    } else {
+    }
+    else {
         /* Compile source file first */
         char* source = read_file(input_file);
         if (!source) {
@@ -418,12 +475,6 @@ static bool execute_file(const char* input_file) {
         free(source);
         needs_cleanup = true;
     }
-
-    /*
-    printf("--- DEBUG: Bytecode\n");
-    print_bytecode(gen);
-    printf("--- END DEBUG\n");
-    */
     
     /* Create VM */
     //printf("DEBUG: About to create VM\n");
@@ -466,8 +517,10 @@ static bool execute_file(const char* input_file) {
         return false;
     }
 
-    if (vm->debug)
+    if (vm->debug) {
+        printf("\n=== Normally end of running ===\n");
         vm_print_status(vm);
+    }
 
     /* Clean up */
     destroy_vm(vm);
@@ -477,4 +530,156 @@ static bool execute_file(const char* input_file) {
     //vm_cleanup_static_buffers(vm);
     
     return true;
+}
+
+bool is_empty(const char *str) {
+    if (!str) {
+        return false;
+    }
+
+    for (; *str != '\0'; ++str) {
+        if (!isspace((unsigned char)*str)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static char* _sbl_input(const char *s) {
+    char* buffer;
+#ifndef ENABLE_READLINE
+    printf("%s", s);
+    buffer = malloc(sizeof(char));
+    assert(buffer != nullptr);
+    int length = 0;
+    int ch;
+    while (true) {
+        ch = getchar();
+
+        if(ch=='\n'||ch=='\0') break;
+
+        if (ch == EOF) {
+            putchar('\n');
+            free(buffer);
+            buffer = nullptr;
+        }
+
+        buffer = realloc(buffer, (length + 1) * sizeof(char));
+        assert(buffer != nullptr);
+        buffer[length++] = ch;
+    }
+
+    buffer[length] = '\0';
+
+#else
+    buffer = readline(s);
+#endif
+
+    return buffer;
+}
+
+void run_repl() {
+    _sbVM* vm = create_vm(); // Init for virtual machine
+    vm_set_source_info(vm, "<stdin>", false);
+
+    if (debugmode)
+        enable_debug(vm);
+
+    printf("SBLang - v%s - REPL - By Laman28\n", VERSION);
+    printf("Compiled with %s(version: ", COMPILER_INFORMATION);
+    print_compiler_version();
+    printf(") on %s [compiled on %s %s]\n", COMPILED_FOR_PLATFORM, __DATE__, __TIME__);
+
+    while (true) {
+        char* buffer = _sbl_input("> ");
+
+        if (buffer == nullptr) break;
+        if (is_empty(buffer)) continue;
+
+        char* buf = _s_strdup(buffer);
+        free(buffer);
+
+#ifdef ENABLE_READLINE
+        add_history(buf);
+#endif
+
+        replcs(true);
+        check:
+        _sbToken* tk = _sbLexer(buf);
+        if (!tk) continue;
+        Parser* parser = create_tkstate(tk);
+        assert(parser != nullptr);
+        reset_error();
+        ASTNode* ast = parse_program(parser);
+        if (check_for_incomplete_syntax()) {
+            freeTkList(tk);
+            free_ast(ast);
+            destroy_tkstate(parser);
+
+            addition_input:
+            char* continue_input = _sbl_input(">> ");
+            if (continue_input == nullptr) break;
+            if (is_empty(continue_input)) goto addition_input;
+            int len = strlen(buf) + strlen(continue_input);
+            char* nbuf = calloc(len + 2, sizeof(char));
+            assert(nbuf != nullptr);
+            strcat(nbuf, buf);
+            strcat(nbuf, "\n");
+            strcat(nbuf, continue_input);
+            free(continue_input);
+            free(buf);
+            buf = nbuf;
+            goto check;
+        }
+        replcs(false);
+        reset_error();
+
+        parser = create_tkstate(tk);
+        ast = parse_program(parser);
+        if (syntaxErrorDetector) {
+            freeTkList(tk);
+            free_ast(ast);
+            destroy_tkstate(parser);
+            goto clean;
+        }
+
+        BytecodeGenerator* gen = create_bytecode_generator();
+        assert(gen != nullptr);
+        bytecode_set_parser(gen, parser);
+        if (!generate_bytecode(gen, ast)) {
+            destroy_bytecode_generator(gen);
+            freeTkList(tk);
+            free_ast(ast);
+            destroy_tkstate(parser);
+        }
+
+        vm_load_bytecode(vm, gen);
+        destroy_bytecode_generator(gen);
+        freeTkList(tk);
+        free_ast(ast);
+        destroy_tkstate(parser);
+
+        vm_execute(vm);
+
+        _sbValue result = vm_peek(vm, 0);
+        if (result.type != VAL_NULL) {
+            _sbValue s = toString(vm, result);
+            printf("-> %s\n", s.as.string);
+        }
+        //free_value(result);
+
+        //destroy_vm_stacks(vm);
+        vm->stack_top = 0;
+
+        clean:
+        free(buf);
+    }
+
+    if (vm->debug) {
+        printf("\n=== Normally end of running ===\n");
+        vm_print_status(vm);
+    }
+
+    destroy_vm(vm);
 }

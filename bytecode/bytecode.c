@@ -110,7 +110,8 @@ void destroy_bytecode_generator(BytecodeGenerator* gen) {
                 /* Free string-type operands */
                 if (inst->opcode == OP_PUSH_STR || inst->opcode == OP_PUSH_IDENT ||
                     inst->opcode == OP_LOAD_VAR || inst->opcode == OP_STORE_VAR ||
-                    inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_START ||
+                    inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_DEF ||
+                    inst->opcode == OP_FUNC_START ||
                     inst->opcode == OP_STRUCT_DEF || inst->opcode == OP_STRUCT_NEW ||
                     inst->opcode == OP_MEMBER_ACCESS || inst->opcode == OP_MEMBER_STORE ||
                     inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
@@ -666,11 +667,12 @@ bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
             return generate_expression(gen, node);
         
         default:
-            if (node->type >= _sbNUMBER_LITERAL && node->type <= _sbLIST_ACCESS) {
+            /*if (node->type >= _sbNUMBER_LITERAL && node->type <= _sbLIST_ACCESS) {
                 return generate_expression(gen, node);
             }
             bytecode_error("Unexpected node type in statement: %d", node->type);
-            return false;
+            return false;*/
+            return generate_expression(gen, node);
     }
 }
 
@@ -804,7 +806,7 @@ void print_bytecode(BytecodeGenerator* gen) {
         Instruction* inst = (Instruction*)dynarray_get(gen->instructions, i);
         if (!inst) continue;
         
-        printf("%06zx: ", i);
+        printf("0x%06zx: ", i);
         
         switch (inst->opcode) {
             case OP_NOP: printf("NOP"); break;
@@ -843,9 +845,9 @@ void print_bytecode(BytecodeGenerator* gen) {
             case OP_STORE_VAR: printf("STORE_VAR %s", inst->operand.str_value); break;
             case OP_LOAD_GLOBAL: printf("LOAD_GLOBAL %s", inst->operand.str_value); break;
             case OP_STORE_GLOBAL: printf("STORE_GLOBAL %s", inst->operand.str_value); break;
-            case OP_JUMP: printf("JUMP %d", inst->operand.int_value); break;
-            case OP_JUMP_IF_FALSE: printf("JUMP_IF_FALSE %d", inst->operand.int_value); break;
-            case OP_JUMP_IF_TRUE: printf("JUMP_IF_TRUE %d", inst->operand.int_value); break;
+            case OP_JUMP: printf("JUMP 0x%x", inst->operand.int_value); break;
+            case OP_JUMP_IF_FALSE: printf("JUMP_IF_FALSE 0x%x", inst->operand.int_value); break;
+            case OP_JUMP_IF_TRUE: printf("JUMP_IF_TRUE 0x%x", inst->operand.int_value); break;
             case OP_CALL: printf("CALL %d", inst->operand.int_value); break;
             case OP_RETURN: printf("RETURN"); break;
             case OP_FUNC_DEF: printf("FUNC_DEF %s", inst->operand.str_value); break;
@@ -941,6 +943,7 @@ bool save_bytecode(BytecodeGenerator* gen, const char* filename) {
                 case OP_STRUCT_DEF:
                 case OP_STRUCT_NEW:
                 case OP_MEMBER_ACCESS:
+                case OP_FUNC_DEF:
                 case OP_MEMBER_STORE: {
                     size_t len = strlen(inst->operand.str_value) + 1;
                     fwrite(&len, sizeof(size_t), 1, file);
@@ -952,6 +955,7 @@ bool save_bytecode(BytecodeGenerator* gen, const char* filename) {
                 case OP_JUMP_IF_TRUE:
                 case OP_CALL:
                 case OP_LIST_NEW:
+                case OP_FUNC_SET_ARGS:
                     fwrite(&inst->operand.int_value, sizeof(int), 1, file);
                     break;
                 default:
@@ -1061,6 +1065,7 @@ BytecodeGenerator* load_bytecode(const char* filename) {
             case OP_STORE_GLOBAL:
             case OP_LOAD_MODULE:
             case OP_FUNC_START:
+            case OP_FUNC_DEF:
             case OP_STRUCT_DEF:
             case OP_STRUCT_NEW:
             case OP_MEMBER_ACCESS:
@@ -1076,6 +1081,7 @@ BytecodeGenerator* load_bytecode(const char* filename) {
             case OP_JUMP_IF_TRUE:
             case OP_CALL:
             case OP_LIST_NEW:
+            case OP_FUNC_SET_ARGS:
                 fread(&inst->operand.int_value, sizeof(int), 1, file);
                 break;
             default:

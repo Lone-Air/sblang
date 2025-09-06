@@ -1,0 +1,8 @@
+function test_param(x){
+    print("Parameter x: ", x, '\n');
+    print("Type of x: ", type(x), '\n'); 
+    return x;
+}
+
+result = test_param(42);
+print("Result: ", result, '\n');

@@ -1,0 +1,9 @@
+function test_1024(x){
+    if (x > 1024) {
+        print("x > 1024", '\n');
+    } else {
+        print("x <= 1024", '\n');
+    }
+}
+
+test_1024(0);

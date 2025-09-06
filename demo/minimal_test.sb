@@ -1,0 +1,5 @@
+function test_minimal(x){
+    print("x is: ", x, '\n');
+}
+
+test_minimal(999);

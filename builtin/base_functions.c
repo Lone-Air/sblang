@@ -12,7 +12,78 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifdef ENABLE_READLINE
+#include <readline/readline.h>
+#endif
+
 char* sep_s;
+
+_sbValue toString(_sbVM* vm, _sbValue value) {
+    switch (value.type) {
+        case VAL_NULL:
+            return create_string(vm, "null");
+        case VAL_NUMBER:
+            char* _s = double_to_string(value.as.number);
+            _sbValue v = create_string(vm,_s);
+            free(_s);
+            return v;
+        case VAL_STRING:
+            return create_string(vm,value.as.string);
+        case VAL_BOOL:
+            return create_string(vm,value.as.boolean ? "true" : "false");
+        case VAL_FUNCTION: {
+            const char* source_file = value.as.function->source_code_file ? value.as.function->source_code_file : "<unknown>";
+            const char* func_name = value.as.function->name ? value.as.function->name : "<unnamed>";
+            char* _s1 = calloc(13 + strlen(func_name) + strlen(source_file), sizeof(char));
+            strcpy(_s1, "<function:");
+            strcat(_s1, func_name);
+            strcat(_s1, ":");
+            strcat(_s1, source_file);
+            strcat(_s1, ">");
+            _sbValue v1 = create_string(vm,_s1);
+            free(_s1);
+            return v1;
+        }
+        case VAL_NATIVE:
+            return create_string(vm,"<native_function>");
+        case VAL_STRUCT:
+            ssize_t size = 12;
+            size += strlen(value.as.struct_def->name);
+            for (int i = 0; i < value.as.struct_def->member_count; i++) {
+                size += strlen(value.as.struct_def->members[i]);
+                if (i != value.as.struct_def->member_count - 1)
+                    size += 2;
+            }
+            size++;
+            char* _s3 = calloc(size, sizeof (char));
+            strcpy(_s3, "{Struct[");
+            strcat(_s3, value.as.struct_def->name);
+            strcat(_s3, "]: ");
+            for (int i = 0; i < value.as.struct_def->member_count; i++) {
+                strcat(_s3, value.as.struct_def->members[i]);
+                if (i != value.as.struct_def->member_count - 1)
+                    strcat(_s3, ", ");
+            }
+            strcat(_s3, "}");
+            _sbValue v3 = create_string(vm,_s3);
+            free(_s3);
+            return v3;
+        case VAL_STRUCT_INSTANCE:
+            ssize_t size1 = 13;
+            size1 += strlen(value.as.instance->struct_def->name);
+            char* _s4 = calloc(size1, sizeof (char));
+            strcpy(_s4, "{Instance[");
+            strcat(_s4, value.as.instance->struct_def->name);
+            strcat(_s4, "]}");
+            _sbValue v4 = create_string(vm,_s4);
+            free(_s4);
+            return v4;
+        case VAL_LIST:
+            return create_string(vm,"<list object>");
+        default:
+            return create_string(vm,"<?undefined type>");
+    }
+}
 
 static char* c2s(char c) {
     char* s = calloc(2, sizeof(char));
@@ -81,17 +152,41 @@ static _sbValue builtin_input(_sbVM* vm, _sbValue* args, int arg_count) {
         fflush(stdout);
     }
 
-    char buffer[1024];
-    if (fgets(buffer, sizeof(buffer), stdin)) {
-        /* Remove newline */
-        size_t len = strlen(buffer);
-        if (len > 0 && buffer[len - 1] == '\n') {
-            buffer[len - 1] = '\0';
+#ifndef ENABLE_READLINE
+    buffer = malloc(sizeof(char));
+    int length = 0;
+    int ch;
+    while (true) {
+        ch = getchar();
+
+        if(ch=='\n'||ch=='\0') break;
+
+        if (ch == EOF) {
+            putchar('\n');
+            free(buffer);
+            return create_null();
         }
-        return create_string(vm, buffer);
+
+        buffer = realloc(buffer, (length + 1) * sizeof(char));
+        buffer[length++] = ch;
+    }
+
+    buffer[length] = '\0';
+    _sbValue result = create_string(buffer);
+    free(buffer);
+
+    return result;
+
+#else
+    char* buffer = readline("");
+    if (buffer != nullptr) {
+        _sbValue result = create_string(vm, buffer);
+        free(buffer);
+        return result;
     }
 
     return create_null();
+#endif
 }
 
 /* Built-in setsep function */
@@ -322,67 +417,7 @@ static _sbValue builtin_toString(_sbVM* vm, _sbValue* args, int arg_count) {
         return create_null();
     }
 
-    switch (args[0].type) {
-        case VAL_NULL:
-            return create_string(vm, "null");
-        case VAL_NUMBER:
-            char* _s = double_to_string(args[0].as.number);
-            _sbValue v = create_string(vm,_s);
-            free(_s);
-            return v;
-        case VAL_STRING:
-            return create_string(vm,args[0].as.string);
-        case VAL_BOOL:
-            return create_string(vm,args[0].as.boolean ? "true" : "false");
-        case VAL_FUNCTION:
-            char* _s1 = calloc(12 + strlen(args[0].as.function->name) + strlen(args[0].as.function->source_code_file), sizeof(char));
-            strcpy(_s1, "<function:");
-            strcat(_s1, args[0].as.function->name);
-            strcat(_s1, ":");
-            strcat(_s1, args[0].as.function->source_code_file);
-            strcat(_s1, ">");
-            _sbValue v1 = create_string(vm,_s1);
-            free(_s1);
-            return v1;
-        case VAL_NATIVE:
-            return create_string(vm,"<native_function>");
-        case VAL_STRUCT:
-            ssize_t size = 12;
-            size += strlen(args[0].as.struct_def->name);
-            for (int i = 0; i < args[0].as.struct_def->member_count; i++) {
-                size += strlen(args[0].as.struct_def->members[i]);
-                if (i != args[0].as.struct_def->member_count - 1)
-                    size += 2;
-            }
-            size++;
-            char* _s3 = calloc(size, sizeof (char));
-            strcpy(_s3, "{Struct[");
-            strcat(_s3, args[0].as.struct_def->name);
-            strcat(_s3, "]: ");
-            for (int i = 0; i < args[0].as.struct_def->member_count; i++) {
-                strcat(_s3, args[0].as.struct_def->members[i]);
-                if (i != args[0].as.struct_def->member_count - 1)
-                    strcat(_s3, ", ");
-            }
-            strcat(_s3, "}");
-            _sbValue v3 = create_string(vm,_s3);
-            free(_s3);
-            return v3;
-        case VAL_STRUCT_INSTANCE:
-            ssize_t size1 = 13;
-            size1 += strlen(args[0].as.instance->struct_def->name);
-            char* _s4 = calloc(size1, sizeof (char));
-            strcpy(_s4, "{Instance[");
-            strcat(_s4, args[0].as.instance->struct_def->name);
-            strcat(_s4, "]}");
-            _sbValue v4 = create_string(vm,_s4);
-            free(_s4);
-            return v4;
-        case VAL_LIST:
-            return create_string(vm,"<list object>");
-        default:
-            return create_string(vm,"<?undefined type>");
-    }
+    return toString(vm, args[0]);
 }
 
 static void register_builtin_variables(_sbVM* vm) {

@@ -1,1 +1,6 @@
-print("Hello World", EOL);
+function simple_test(param){
+    return param;
+}
+
+result = simple_test(123);
+print("Result: ", result, '\n');

@@ -12,9 +12,15 @@
 
 bool syntaxErrorDetector;
 bool repl_check_syntax;
+bool incomplete_syntax;
 
 void init_repl_check_syntax() {
     repl_check_syntax = false;
+    incomplete_syntax = false;
+}
+
+bool check_for_incomplete_syntax() {
+    return incomplete_syntax;
 }
 
 void replcs(bool b) {
@@ -23,6 +29,7 @@ void replcs(bool b) {
 
 void reset_error() {
     syntaxErrorDetector = false;
+    incomplete_syntax = false;
 }
 
 void lexError(const char* errinfo, int c, int l){
@@ -92,6 +99,8 @@ void unclosed_delimiter(Parser* parser, const char* delimiter, int start_line, i
 }
 
 void missing_semicolon(Parser* parser) {
+    //Incomplete sentence
+    incomplete_syntax = true;
     syntaxError(parser, "missing ';' at end of statement");
 }
 
@@ -128,6 +137,8 @@ void bytecode_error(const char* format, ...) {
 void vm_error(_sbVM* vm, VMError error, const char* format, ...) {
     if (!vm) return;
 
+    vm->error = true;
+
     vm->last_error = error;
     vm->running = false;
 
@@ -146,6 +157,7 @@ void vm_error(_sbVM* vm, VMError error, const char* format, ...) {
 
     vm_print_error(vm);
     if (vm->debug) {
+        printf("\n=== Debug output while outputing an error ===\n");
         vm_print_status(vm);
     }
 }

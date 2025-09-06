@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <math.h>
+#include <stddef.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -36,7 +37,7 @@
 #endif
 #endif
 
-static bool append_module_instructions(_sbVM* vm, BytecodeGenerator* gen, size_t offset);
+//static bool append_module_instructions(_sbVM* vm, BytecodeGenerator* gen, size_t offset);
 
 /* ========== No skipping repeated seperator: strtok ========== */
 char* _no_skip_strtok(char* str, const char* delim){
@@ -126,8 +127,21 @@ static void free_variable_table_gc_safe(_sbVM* vm, _sbVariableTable* table) {
         // Only free non-GC managed types like function source file paths
         _sbValue* value = &table->vars[i].value;
         if (value->type == VAL_FUNCTION && value->as.function && value->as.function->source_code_file) {
-            free(value->as.function->source_code_file);
-            value->as.function->source_code_file = nullptr;
+            // Check if this function is still valid (not pointing to freed memory)
+            bool is_valid_function = false;
+            if (vm && vm->functions) {
+                for (size_t j = 0; j < vm->function_count; j++) {
+                    if (&vm->functions[j] == value->as.function) {
+                        is_valid_function = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (is_valid_function) {
+                free(value->as.function->source_code_file);
+                value->as.function->source_code_file = nullptr;
+            }
         }
     }
 
@@ -204,7 +218,7 @@ _sbVM* create_vm() {
     vm->chunk_count = 0;
     vm->chunk_capacity = VM_INITIAL_CHUNK_SIZE;
 
-    vm->chunk_traceback = (size_t*)malloc(sizeof(int) * VM_INITIAL_CHUNK_TRACEBACK_SIZE);
+    vm->chunk_traceback = (size_t*)malloc(sizeof(size_t) * VM_INITIAL_CHUNK_TRACEBACK_SIZE);
     vm->chunk_tb_count = 0;
     vm->chunk_traceback_capacity = VM_INITIAL_CHUNK_TRACEBACK_SIZE;
 
@@ -280,6 +294,7 @@ _sbVM* create_vm() {
     }
 
     vm->error_from_native = false;
+    vm->error = false;
 
     return vm;
 }
@@ -382,19 +397,10 @@ void destroy_vm(_sbVM* vm) {
     vm->gc_object_count = 0;
     vm->gc_bytes_allocated = 0;
 
-    // Free dynamic stack without GC (since GC is disabled and cleaned)
-    if (vm->stack) {
-        for (size_t i = 0; i < vm->stack_top; i++) {
-            // Only free non-GC managed parts since GC objects are already freed
-            _sbValue* val = &vm->stack[i];
-            if (val->type == VAL_FUNCTION && val->as.function && val->as.function->source_code_file) {
-                free(val->as.function->source_code_file);
-                val->as.function->source_code_file = nullptr;
-            }
-        }
-        free(vm->stack);
-        vm->stack = nullptr;
-    }
+    destroy_vm_stacks(vm);
+
+    free(vm->stack);
+    vm->stack = nullptr;
 
     // Free dynamic call stack
     if (vm->call_stack) {
@@ -431,26 +437,35 @@ void destroy_vm(_sbVM* vm) {
     }
 
     // Free instruction array and string operands
-    if (vm->instructions) {
-        for (size_t i = 0; i < vm->instruction_count; i++) {
-            Instruction* inst = &vm->instructions[i];
-            // Free all string operands
-            if (inst->opcode == OP_PUSH_STR || inst->opcode == OP_PUSH_IDENT ||
-                inst->opcode == OP_LOAD_VAR || inst->opcode == OP_STORE_VAR ||
-                inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_START ||
-                inst->opcode == OP_STRUCT_DEF || inst->opcode == OP_STRUCT_NEW ||
-                inst->opcode == OP_MEMBER_ACCESS || inst->opcode == OP_MEMBER_STORE ||
-                inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
-                if (inst->operand.str_value) {
-                    free(inst->operand.str_value);
-                    inst->operand.str_value = nullptr;
+    if (vm->chunks) {
+        for (size_t j = 0; j < vm->chunk_count; j++) {
+            step_chunk(vm, j);
+            if (vm->instructions) {
+                for (size_t i = 0; i < vm->instruction_count; i++) {
+                    Instruction* inst = &vm->instructions[i];
+                    // Free all string operands
+                    if (inst->opcode == OP_PUSH_STR || inst->opcode == OP_PUSH_IDENT ||
+                        inst->opcode == OP_LOAD_VAR || inst->opcode == OP_STORE_VAR ||
+                        inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_START ||
+                        inst->opcode == OP_STRUCT_DEF || inst->opcode == OP_STRUCT_NEW ||
+                        inst->opcode == OP_MEMBER_ACCESS || inst->opcode == OP_MEMBER_STORE ||
+                        inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
+                        if (inst->operand.str_value) {
+                            free(inst->operand.str_value);
+                            inst->operand.str_value = nullptr;
+                        }
+                        }
                 }
+                free(vm->instructions);
+                vm->instructions = nullptr;
+                vm->instruction_count = 0;
             }
+            back_chunk(vm);
         }
-        free(vm->instructions);
-        vm->instructions = nullptr;
-        vm->instruction_count = 0;
     }
+
+    free(vm->chunks);
+    free(vm->chunk_traceback);
 
     // Free function definitions
     if (vm->functions) {
@@ -526,6 +541,20 @@ void destroy_vm(_sbVM* vm) {
     free(vm);
 
     free(sep_s);
+}
+
+void destroy_vm_stacks(_sbVM* vm) {
+    // Free dynamic stack without GC (since GC is disabled and cleaned)
+    if (vm->stack) {
+        for (size_t i = 0; i < vm->stack_top; i++) {
+            // Only free non-GC managed parts since GC objects are already freed
+            _sbValue* val = &vm->stack[i];
+            if (val->type == VAL_FUNCTION && val->as.function && val->as.function->source_code_file) {
+                free(val->as.function->source_code_file);
+                val->as.function->source_code_file = nullptr;
+            }
+        }
+    }
 }
 
 /**
@@ -1000,10 +1029,8 @@ void free_value_gc(_sbVM* vm, _sbValue value) {
             }
             break;
         case VAL_FUNCTION:
-            if (value.as.function && value.as.function->source_code_file) {
-                free(value.as.function->source_code_file);
-                value.as.function->source_code_file = nullptr;
-            }
+            // Function values don't own source_code_file, only vm->functions array does
+            // So we don't free source_code_file here
             break;
         default:
             // Other types don't allocate heap memory or are not GC-managed
@@ -1096,16 +1123,19 @@ void vm_print_stack(_sbVM* vm) {
             case VAL_STRING: printf("\"%s\" ", vm->stack[i].as.string); break;
             case VAL_BOOL: printf("%s ", vm->stack[i].as.boolean ? "true" : "false"); break;
             case VAL_LIST: printf("<list object>");break;
-            case VAL_FUNCTION:
-                char* _s1 = calloc(12 + strlen(vm->stack[i].as.function->name) + strlen(vm->stack[i].as.function->source_code_file), sizeof(char));
+            case VAL_FUNCTION: {
+                const char* source_file = vm->stack[i].as.function->source_code_file ? vm->stack[i].as.function->source_code_file : "<unknown>";
+                const char* func_name = vm->stack[i].as.function->name ? vm->stack[i].as.function->name : "<unnamed>";
+                char* _s1 = calloc(13 + strlen(func_name) + strlen(source_file), sizeof(char));
                 strcpy(_s1, "<function:");
-                strcat(_s1, vm->stack[i].as.function->name);
+                strcat(_s1, func_name);
                 strcat(_s1, ":");
-                strcat(_s1, vm->stack[i].as.function->source_code_file);
+                strcat(_s1, source_file);
                 strcat(_s1, ">");
-                printf("%s", _s1);
+                printf("%s ", _s1);
                 free(_s1);
                 break;
+            }
             case VAL_NATIVE: printf("<native_function>"); break;
             case VAL_STRUCT_INSTANCE:
                 ssize_t size1 = 13;
@@ -1160,7 +1190,7 @@ void vm_print_status(_sbVM* vm) {
             Instruction* inst = &(vm->instructions[i]);
             if (!inst) continue;
 
-            printf("%06zx: ", i);
+            printf("0x%06zx: ", i);
 
             switch (inst->opcode) {
                 case OP_NOP: printf("NOP"); break;
@@ -1199,9 +1229,9 @@ void vm_print_status(_sbVM* vm) {
                 case OP_STORE_VAR: printf("STORE_VAR %s", inst->operand.str_value); break;
                 case OP_LOAD_GLOBAL: printf("LOAD_GLOBAL %s", inst->operand.str_value); break;
                 case OP_STORE_GLOBAL: printf("STORE_GLOBAL %s", inst->operand.str_value); break;
-                case OP_JUMP: printf("JUMP %d", inst->operand.int_value); break;
-                case OP_JUMP_IF_FALSE: printf("JUMP_IF_FALSE %d", inst->operand.int_value); break;
-                case OP_JUMP_IF_TRUE: printf("JUMP_IF_TRUE %d", inst->operand.int_value); break;
+                case OP_JUMP: printf("JUMP 0x%x", inst->operand.int_value); break;
+                case OP_JUMP_IF_FALSE: printf("JUMP_IF_FALSE 0x%x", inst->operand.int_value); break;
+                case OP_JUMP_IF_TRUE: printf("JUMP_IF_TRUE 0x%x", inst->operand.int_value); break;
                 case OP_CALL: printf("CALL %d", inst->operand.int_value); break;
                 case OP_RETURN: printf("RETURN"); break;
                 case OP_FUNC_DEF: printf("FUNC_DEF %s", inst->operand.str_value); break;
@@ -1306,9 +1336,14 @@ void vm_print_status(_sbVM* vm) {
 
     printf("Bytecode execution mode: %s\n\n", vm->is_bytecode_execution ? "true" : "false");
 
-    printf("Loaded Instructions: %lu\n", vm->instruction_count);
+    printf("Loaded Chunks: %lu\n", vm->chunk_count);
+    int total_instruction_count = 0;
+    for (size_t i = 0; i < vm->chunk_count; i++) {
+        total_instruction_count += vm->chunks[i].inst_count;
+    }
+    printf("Total instructions: %lu\n", total_instruction_count);
     printf("Current instruction: %lu\n", vm->pc);
-    printf("End instruction: %lu\n\n", vm->end_pc);
+    //printf("End instruction: %lu\n\n", vm->end_pc);
 
     printf("Stack size: %lu\n", vm->stack_capacity);
     printf("Stack top: %lu\n\n", vm->stack_top);
@@ -1351,6 +1386,7 @@ int vm_add_source_info(_sbVM* vm, const char* filename, bool bytecode) {
 
 int vm_sourceinfo_lookup(_sbVM* vm, const char* filename) {
     if (!vm) return -1;
+    if (!vm->sf_traceback) return -1;
 
     for (int i = 0; i < vm->sfp_count; i++) {
         if (strcmp(filename, vm->sfp[i]) == 0)
@@ -1671,259 +1707,19 @@ static bool load_shared_library(_sbVM* vm, const char* lib_path, const char* mod
 /**
  * Load bytecode from .sbc file
  */
-static bool load_bytecode_file(_sbVM* vm, const char* filename, const char* module_name) {
+bool load_bytecode_file(_sbVM* vm, const char* filename, const char* module_name) {
 
     vm_set_source_info(vm, filename, true);
 
     BytecodeGenerator* gen = load_bytecode(filename);
     if (!gen) {
         vm_back_source_info(vm);
-        vm_error(vm, VM_MEMORY_ERROR, "Failed to create bytecode generator for module");
+        vm_error(vm, VM_MEMORY_ERROR, "Failed to create bytecode generator for the module `%s`", module_name);
         return false;
     }
 
     //printf("Loading bytecode module: %s\n", module_name);
 
-    /* Load and execute module bytecode */
-    /* Append module instructions to main program */
-    /*size_t offset = vm->instruction_count;  // Save current instruction count as offset
-    if (!append_module_instructions(vm, gen, offset)) {
-        destroy_bytecode_generator(gen);
-        vm_back_source_info(vm);
-        vm_error(vm, VM_LOAD_ERROR, "Failed to combine module instructions");
-        return false;
-    }*/
-
-    //printf("Loading module: %s\n", module_name);
-
-    /* Execute module initialization code (from offset to end) */
-    //size_t saved_pc = vm->pc;
-
-    //printf("DEBUG: Executing module from PC=%zu to PC=%zu\n", offset, vm->instruction_count - 1);
-
-    // Skip the HALT instruction that separates main program from module
-    /*if (offset > 0 && vm->instructions[offset].opcode == OP_HALT) {
-        offset++;  // Skip the HALT to start at actual module code
-    }
-
-    vm->pc = offset;  // Start executing from the module's first instruction
-    */
-    size_t id = new_chunk(vm);
-    step_chunk(vm, id);
-    VMError result = vm_execute(vm);
-
-    if (result != VM_OK) {
-        return result;
-        //vm_print_error(vm);
-        // Error report had moved into vm_error
-    }
-
-    //printf("DEBUG: Module execution finished, restoring PC from %zu to %zu\n", vm->pc, saved_pc);
-
-    /* Restore PC to continue main program execution */
-
-    //vm->pc = saved_pc;
-    back_chunk(vm);
-    vm_back_source_info(vm);
-
-    /* Clean up resources */
-    destroy_bytecode_generator(gen);
-
-    return result == VM_OK;
-}
-
-/**
- * Append module instructions to VM
- *//*
-static bool append_module_instructions(_sbVM* vm, BytecodeGenerator* gen, size_t offset) {
-    if (!vm || !gen) return false;
-
-    // First, add a HALT instruction at the end of main program to prevent fall-through
-    if (offset > 0) {
-        // Expand instruction array by 1 for HALT
-        Instruction* new_instructions = (Instruction*)realloc(vm->instructions,
-                                                              (offset + 1) * sizeof(Instruction));
-        if (!new_instructions) {
-            vm_error(vm, VM_MEMORY_ERROR, "Failed to add HALT instruction");
-            return false;
-        }
-        vm->instructions = new_instructions;
-
-        // Add HALT instruction at the end of main program
-        vm->instructions[offset].opcode = OP_HALT;
-        vm->instructions[offset].operand.int_value = 0;
-
-        vm->instruction_count = offset + 1;
-        offset = vm->instruction_count;  // Update offset for module instructions
-    }
-
-    // Calculate new total instruction count
-    size_t new_count = vm->instruction_count + gen->instructions->count;
-
-    // Reallocate instruction array
-    Instruction* new_instructions = (Instruction*)realloc(vm->instructions,
-                                                          new_count * sizeof(Instruction));
-    if (!new_instructions) {
-        vm_error(vm, VM_MEMORY_ERROR, "Failed to expand instruction memory for module");
-        return false;
-    }
-
-    vm->instructions = new_instructions;
-
-    // Copy module instructions to the end of main instructions
-    for (size_t i = 0; i < gen->instructions->count; i++) {
-        Instruction* src = (Instruction*)gen->instructions->items[i];
-        size_t dest_idx = vm->instruction_count + i;
-        vm->instructions[dest_idx] = *src;
-
-        // Copy string operands
-        if (src->opcode == OP_PUSH_STR || src->opcode == OP_PUSH_IDENT ||
-            src->opcode == OP_LOAD_VAR || src->opcode == OP_STORE_VAR ||
-            src->opcode == OP_LOAD_MODULE || src->opcode == OP_FUNC_START ||
-            src->opcode == OP_STRUCT_DEF || src->opcode == OP_STRUCT_NEW ||
-            src->opcode == OP_MEMBER_ACCESS || src->opcode == OP_MEMBER_STORE ||
-            src->opcode == OP_LOAD_GLOBAL || src->opcode == OP_STORE_GLOBAL) {
-            if (src->operand.str_value) {
-                vm->instructions[dest_idx].operand.str_value = _s_strdup(src->operand.str_value);
-            }
-        }
-
-        // Adjust jump addresses
-        if (src->opcode == OP_JUMP || src->opcode == OP_JUMP_IF_FALSE ||
-            src->opcode == OP_JUMP_IF_TRUE) {
-            vm->instructions[dest_idx].operand.int_value += offset;
-        }
-    }
-
-    // Load and adjust function definitions
-    if (gen->functions && gen->functions->count > 0) {
-        size_t old_func_count = vm->function_count;
-        size_t new_func_count = old_func_count + gen->functions->count;
-
-        _sbVFunction* new_functions = (_sbVFunction*)realloc(vm->functions,
-                                                     new_func_count * sizeof(_sbVFunction));
-        if (!new_functions) {
-            vm_error(vm, VM_MEMORY_ERROR, "Failed to expand function table for module");
-            return false;
-        }
-
-        vm->functions = new_functions;
-
-        for (size_t i = 0; i < gen->functions->count; i++) {
-            FunctionInfo* src = (FunctionInfo*)gen->functions->items[i];
-            size_t dest_idx = old_func_count + i;
-
-            vm->functions[dest_idx].name = _s_strdup(src->name);
-            vm->functions[dest_idx].start_addr = src->start_addr + offset; // Adjust function address
-            vm->functions[dest_idx].param_count = src->param_count;
-            vm->functions[dest_idx].locals = nullptr;
-
-            // Register function as a global variable
-            _sbValue func_val = create_function(vm, &vm->functions[dest_idx]);
-            vm_define_global(vm, vm->functions[dest_idx].name, func_val);
-        }
-
-        vm->function_count = new_func_count;
-    }
-
-    // Update instruction count
-    vm->instruction_count = new_count;
-
-    return true;
-}*/
-
-/**
- * Load source file and compile
- */
-static bool load_source_file(_sbVM* vm, const char* filename, const char* module_name) {
-    // For traceback
-    vm_set_source_info(vm, filename, false);
-
-    char* source = _s_strdup(vm->source_content);
-
-    /* Lexical analysis */
-    _sbToken* tokens = _sbLexer(source);
-    if (!tokens) {
-        free(source);
-        vm_back_source_info(vm);
-        vm_error(vm, VM_LOAD_ERROR, "Failed to tokenize module '%s'", module_name);
-        return false;
-    }
-
-    /* Syntax analysis */
-    Parser* parser = create_tkstate(tokens);
-    if (!parser) {
-        free(tokens);
-        free(source);
-        vm_back_source_info(vm);
-        vm_error(vm, VM_LOAD_ERROR, "Failed to create parser for module '%s'", module_name);
-        return false;
-    }
-
-    reset_error();
-    ASTNode* ast = parse_program(parser);
-
-    if (!ast || syntaxErrorDetector) {
-        destroy_tkstate(parser);
-        free(tokens);
-        free(source);
-        vm_back_source_info(vm);
-        vm_error(vm, VM_LOAD_ERROR, "Failed to parse module '%s'", module_name);
-        return false;
-    }
-
-    /* Generate bytecode */
-    BytecodeGenerator* gen = create_bytecode_generator();
-    if (!gen) {
-        free_ast(ast);
-        destroy_tkstate(parser);
-        free(tokens);
-        free(source);
-        vm_back_source_info(vm);
-        vm_error(vm, VM_MEMORY_ERROR, "Failed to create bytecode generator for module");
-        return false;
-    }
-
-    if (!generate_bytecode(gen, ast)) {
-        destroy_bytecode_generator(gen);
-        free_ast(ast);
-        destroy_tkstate(parser);
-        free(tokens);
-        free(source);
-        vm_back_source_info(vm);
-        vm_error(vm, VM_LOAD_ERROR, "Failed to generate bytecode for module '%s'", module_name);
-        return false;
-    }
-
-    /* Append module instructions to main program */
-    /*size_t offset = vm->instruction_count;  // Save current instruction count as offset
-    if (!append_module_instructions(vm, gen, offset)) {
-        destroy_bytecode_generator(gen);
-        free_ast(ast);
-        destroy_tkstate(parser);
-        free(tokens);
-        free(source);
-        vm_back_source_info(vm);
-        vm_error(vm, VM_LOAD_ERROR, "Failed to combine module instructions");
-        return false;
-    }*/
-
-    //printf("Loading module: %s\n", module_name);
-
-    /* Execute module initialization code (from offset to end) */
-    //size_t saved_pc = vm->pc;
-
-    //printf("DEBUG: Executing module from PC=%zu to PC=%zu\n", offset, vm->instruction_count - 1);
-
-    // Skip the HALT instruction that separates main program from module
-    /*if (offset > 0 && vm->instructions[offset].opcode == OP_HALT) {
-        offset++;  // Skip the HALT to start at actual module code
-    }
-
-    vm->pc = offset;  // Start executing from the module's first instruction
-    */
-    //size_t id = new_chunk(vm);
-    //step_chunk(vm, id);
     vm_load_bytecode(vm, gen);
     VMError result = vm_execute(vm);
 
@@ -1937,7 +1733,92 @@ static bool load_source_file(_sbVM* vm, const char* filename, const char* module
 
     /* Restore PC to continue main program execution */
 
-    //vm->pc = saved_pc;
+    back_chunk(vm);
+    vm_back_source_info(vm);
+
+    /* Clean up resources */
+    destroy_bytecode_generator(gen);
+
+    return result == VM_OK;
+}
+
+/**
+ * Load source file and compile
+ */
+bool load_source_file(_sbVM* vm, const char* filename, const char* module_name) {
+    // For traceback
+    vm_set_source_info(vm, filename, false);
+
+    char* source = _s_strdup(vm->source_content);
+
+    /* Lexical analysis */
+    _sbToken* tokens = _sbLexer(source);
+    if (!tokens) {
+        free(source);
+        freeTkList(tokens);
+        vm_back_source_info(vm);
+        vm_error(vm, VM_LOAD_ERROR, "Failed to tokenize module '%s'", module_name);
+        return false;
+    }
+
+    /* Syntax analysis */
+    Parser* parser = create_tkstate(tokens);
+    if (!parser) {
+        freeTkList(tokens);
+        free(source);
+        vm_back_source_info(vm);
+        vm_error(vm, VM_LOAD_ERROR, "Failed to create parser for module '%s'", module_name);
+        return false;
+    }
+
+    reset_error();
+    ASTNode* ast = parse_program(parser);
+
+    if (!ast || syntaxErrorDetector) {
+        destroy_tkstate(parser);
+        freeTkList(tokens);
+        free(source);
+        vm_back_source_info(vm);
+        vm_error(vm, VM_LOAD_ERROR, "Failed to parse module '%s'", module_name);
+        return false;
+    }
+
+    /* Generate bytecode */
+    BytecodeGenerator* gen = create_bytecode_generator();
+    if (!gen) {
+        free_ast(ast);
+        destroy_tkstate(parser);
+        freeTkList(tokens);
+        free(source);
+        vm_back_source_info(vm);
+        vm_error(vm, VM_MEMORY_ERROR, "Failed to create bytecode generator for module");
+        return false;
+    }
+
+    if (!generate_bytecode(gen, ast)) {
+        destroy_bytecode_generator(gen);
+        free_ast(ast);
+        destroy_tkstate(parser);
+        freeTkList(tokens);
+        free(source);
+        vm_back_source_info(vm);
+        vm_error(vm, VM_LOAD_ERROR, "Failed to generate bytecode for module '%s'", module_name);
+        return false;
+    }
+
+    vm_load_bytecode(vm, gen);
+    VMError result = vm_execute(vm);
+
+    if (result != VM_OK) {
+        return result;
+        //vm_print_error(vm);
+        // Error report had moved into vm_error
+    }
+
+    //printf("DEBUG: Module execution finished, restoring PC from %zu to %zu\n", vm->pc, saved_pc);
+
+    /* Restore PC to continue main program execution */
+
     back_chunk(vm);
     vm_back_source_info(vm);
 
@@ -1957,7 +1838,7 @@ static bool load_source_file(_sbVM* vm, const char* filename, const char* module
  * 1. Check ../lib/sblang/[module_name]/ directory for init.sb -> [module_name].sb -> [module_name].sbc
  * 2. Original loading logic: .so/.dll -> .sbc -> .sb in current directory
  */
-static bool load_module(_sbVM* vm, const char* module_name) {
+bool load_module(_sbVM* vm, const char* module_name) {
     char filename[512];
     char exe_dir[PATH_MAX];
 
@@ -2479,6 +2360,7 @@ VMError vm_execute_instruction(_sbVM* vm) {
             if (!var) {
                 _sbValue* native_var = vm_get_variable(vm, name);
                 if (native_var && native_var->type == VAL_NATIVE) {
+                    native_var->freed = false;
                     vm_push(vm, *native_var);
                 }
                 else {
@@ -2512,15 +2394,19 @@ VMError vm_execute_instruction(_sbVM* vm) {
             _sbValue value = vm_pop(vm);
             const char* name = inst->operand.str_value;
 
-            if (inst->opcode == OP_STORE_GLOBAL)
-                add_variable(vm, &vm->globals, name, value);
+            bool success = false;
+            if (inst->opcode == OP_STORE_GLOBAL) {
+                success = add_variable(vm, &vm->globals, name, value);
+            } else {
+                success = vm_set_variable(vm, name, value);
+            }
 
-            if (!vm_set_variable(vm, name, value)) {
+            if (!success) {
                 vm_error(vm, VM_RUNTIME_ERROR, "Failed to store variable '%s'", name);
                 free_value_gc(vm, value);
                 return VM_RUNTIME_ERROR;
             }
-            // Free the original value since vm_set_variable makes a copy
+            // Free the original value since add_variable/vm_set_variable makes a copy
             free_value_gc(vm, value);
             break;
         }
@@ -2559,12 +2445,10 @@ VMError vm_execute_instruction(_sbVM* vm) {
             _sbValue args[arg_count];
             for (int i = arg_count - 1; i >= 0; i--) {
                 _sbValue original = vm_pop(vm);
-                // Deep copy struct instances to avoid double-free when passed as function arguments
-                if (original.type == VAL_STRUCT_INSTANCE) {
-                    args[i] = copy_value(vm, original);
-                } else {
-                    args[i] = original;
-                }
+                // Always make a copy to avoid memory management issues
+                args[i] = copy_value(vm, original);
+                // Free the original value since we have a copy
+                free_value_gc(vm, original);
             }
 
             // Get function name
@@ -2587,6 +2471,10 @@ VMError vm_execute_instruction(_sbVM* vm) {
                     vm->error_from_native = true;
 
                     _sbValue result = func_val->as.native(vm, args, arg_count);
+                    if (vm->error) {
+                        return vm->last_error;
+                    }
+                    result.freed = false;
                     vm_push(vm, result);
 
                     for (int i = 0; i < arg_count; i++) {
@@ -2606,7 +2494,7 @@ VMError vm_execute_instruction(_sbVM* vm) {
                                 func_name.as.string, func->param_count, arg_count);
                         free_value_gc(vm, func_name);
                         for (int i = 0; i < arg_count; i++) {
-                            free_value(args[i]);
+                            free_value_gc(vm, args[i]);
                         }
                         return VM_ARGUMENT_MISMATCH;
                     }
@@ -2619,7 +2507,7 @@ VMError vm_execute_instruction(_sbVM* vm) {
                             vm_error(vm, VM_MEMORY_ERROR, "Failed to expand call stack");
                             free_value_gc(vm, func_name);
                             for (int i = 0; i < arg_count; i++) {
-                                free_value(args[i]);
+                                free_value_gc(vm, args[i]);
                             }
                             return VM_MEMORY_ERROR;
                         }
@@ -2648,14 +2536,12 @@ VMError vm_execute_instruction(_sbVM* vm) {
                     }
 
                     // Jump to function body
-                    //vm->pc = func->start_addr;
                     if (func->source_code_file) {
                         vm_set_source_info(vm, func->source_code_file, false);
                     }
 
                     step_chunk(vm, func->chunk_id);
-                    vm_execute(vm);
-                    back_chunk(vm);
+                    vm->pc = func->start_addr;  // Set PC to function start
                 }
                 else {
                     vm_error(vm, VM_TYPE_ERROR, "'%s' is not a function", func_name.as.string);
@@ -2688,6 +2574,9 @@ VMError vm_execute_instruction(_sbVM* vm) {
                 // Restore PC
                 vm->pc = frame->return_addr;
 
+                // Restore previous chunk context
+                back_chunk(vm);
+
                 // Clean up current local variables and restore previous scope
                 if (vm->locals) {
                     free_variable_table_gc(vm, vm->locals);
@@ -2698,6 +2587,7 @@ VMError vm_execute_instruction(_sbVM* vm) {
                 vm->locals = (_sbVariableTable*)frame->locals;
 
                 // Push return value back onto stack
+                return_value.freed = false;
                 vm_push(vm, return_value);
 
                 // Traceback file level
@@ -2836,6 +2726,7 @@ end_of_create_struct:
             _sbValue val;
             val.type = VAL_STRUCT_INSTANCE;
             val.as.instance = instance;
+            val.freed = false;
             vm_push(vm, val);
             break;
         }
@@ -3047,6 +2938,7 @@ VMError vm_execute(_sbVM* vm) {
     }
 
     vm->running = true;
+    vm->error = false;
     vm->last_error = VM_OK;
 
     // Main execution loop
@@ -3120,6 +3012,9 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
 
         if (src->opcode == OP_FUNC_DEF) {
             vm->instruction_count --;
+            jmp_offset += 2;
+            size_t jmp_offset_f = jmp_offset;
+
             size_t function_chunk = new_chunk(vm);
             step_chunk(vm, function_chunk);
 
@@ -3156,7 +3051,7 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
                 else if (_src->opcode == OP_JUMP || _src->opcode == OP_JUMP_IF_FALSE ||
                     _src->opcode == OP_JUMP_IF_TRUE ) {
                     vm->instructions[vm->instruction_count] = *_src;
-                    vm->instructions[vm->instruction_count].operand.int_value = _src->operand.int_value - jmp_offset;
+                    vm->instructions[vm->instruction_count].operand.int_value = _src->operand.int_value - jmp_offset_f;
                 }
                 else
                     vm->instructions[vm->instruction_count] = *_src;
@@ -3169,13 +3064,34 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
             back_chunk(vm);
 
             vm->function_count++;
+            _sbVFunction* old_functions = vm->functions;
             vm->functions = (_sbVFunction*)realloc(vm->functions, vm->function_count * sizeof(_sbVFunction));
+            
+            if (!vm->functions) {
+                vm_error(vm, VM_RUNTIME_ERROR, "Failed to allocate memory for functions");
+                vm->functions = old_functions;
+                vm->function_count--;
+                return false;
+            }
+            
+            // If realloc moved the array, we need to update all function pointers in global variables
+            if (vm->functions != old_functions) {
+                ptrdiff_t offset = (char*)vm->functions - (char*)old_functions;
+                for (size_t j = 0; j < vm->globals.count; j++) {
+                    if (vm->globals.vars[j].value.type == VAL_FUNCTION && 
+                        vm->globals.vars[j].value.as.function >= old_functions && 
+                        vm->globals.vars[j].value.as.function < old_functions + (vm->function_count - 1)) {
+                        vm->globals.vars[j].value.as.function = 
+                            (_sbVFunction*)((char*)vm->globals.vars[j].value.as.function + offset);
+                    }
+                }
+            }
 
             vm->functions[vm->function_count - 1].name = _s_strdup(src->operand.str_value);
             vm->functions[vm->function_count - 1].param_count = param_count;
             vm->functions[vm->function_count - 1].locals = nullptr;
             vm->functions[vm->function_count - 1].start_addr = 0;
-            vm->functions[vm->function_count - 1].source_code_file = _s_strdup(vm->source_filename);
+            vm->functions[vm->function_count - 1].source_code_file = vm->source_filename ? _s_strdup(vm->source_filename) : _s_strdup("unknown");
 
             _sbValue func_val = create_function(vm, &vm->functions[vm->function_count - 1], function_chunk);
             vm_define_global(vm, vm->functions[vm->function_count - 1].name, func_val);
@@ -3206,6 +3122,7 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
     }*/
 
     // Load struct definitions
+    /*
     if (gen->structs && gen->structs->count > 0) {
         vm->struct_count = gen->structs->count;
         vm->structs = (_sbVStruct*)malloc(vm->struct_count * sizeof(_sbVStruct));
@@ -3225,22 +3142,26 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
                 vm->structs[i].members = nullptr;
             }
         }
-    }
+    }*/
 
     // Initialize global variables
-    if (gen->globals) {
+    /*if (gen->globals) {
         for (size_t i = 0; i < gen->globals->count; i++) {
             char* global_name = (char*)gen->globals->items[i];
             vm_define_global(vm, global_name, create_null());
         }
-    }
+    }*/
 
-    vm->pc = 0;
+    //vm->pc = 0;
 
     /*if (vm->running == false)
         vm->end_pc = vm->instruction_count;*/
 
     save_chunk(vm);
+    if (vm->debug) {
+        printf("\n=== Debug output while loading bytecodes into new chunks ===\n");
+        vm_print_status(vm);
+    }
     return true;
 }
 

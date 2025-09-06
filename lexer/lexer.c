@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #define UPDATE(x, c, l, p, t) tks = (_sbToken*)realloc(tks, sizeof(_sbToken) * (tkc + 2)); /* Reallocate a larger memory for token pool */ \
                   if(x != nullptr){ /* Check if the token is `nullptr` */ \
@@ -73,6 +74,7 @@ _sbToken* _sbPreLexer(const char* src){ // Pre-Lexer
     int tkc = 0;
 
     tks = (_sbToken*)malloc(sizeof(_sbToken));
+    assert(tks != nullptr);
     set_zero(tks, sizeof(_sbToken));
 
     char c;

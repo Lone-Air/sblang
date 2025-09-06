@@ -225,7 +225,7 @@ struct _sbVM {
     size_t bc_count;
     size_t bc_capacity;
 
-    size_t end_pc;
+    bool error;
     bool error_from_native;
     bool debug;
 };
@@ -252,6 +252,12 @@ extern void enable_debug(_sbVM* vm);
 
 /* Destroy VM instance, free all resources */
 extern void destroy_vm(_sbVM* vm);
+extern void destroy_vm_stacks(_sbVM* vm);
+
+/* Extra files operation */
+extern bool load_source_file(_sbVM* vm, const char* filename, const char* module_name);
+extern bool load_bytecode_file(_sbVM* vm, const char* filename, const char* module_name);
+extern bool load_module(_sbVM* vm, const char* module_name);
 
 /* ========== Stack Operation Functions ========== */
 

@@ -1,0 +1,6 @@
+function test_gt(x){
+    result = x > 5;
+    print("result: ", result, '\n');
+}
+
+test_gt(10);

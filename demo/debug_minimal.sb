@@ -1,0 +1,5 @@
+function test(x){
+    print(x);
+}
+
+test(42);

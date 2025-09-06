@@ -12,6 +12,8 @@ set(CMAKE_BUILD_RPATH
         ${CMAKE_CURRENT_BINARY_DIR}
 )
 
+option(ENABLE_GNU_READLINE "Enable GNU Readline support" OFF)
+
 list(APPEND CMAKE_INSTALL_RPATH
         "$ORIGIN"                              # 可执行文件所在目录
         "$ORIGIN/lib"                          # 可执行文件目录下的lib
@@ -85,3 +87,18 @@ install(FILES
         information.h
         DESTINATION include/sblang
 )
+
+if(ENABLE_GNU_READLINE)
+    #find_package(readline)
+    find_library(READLINE_FOUND readline)
+    if(READLINE_FOUND)
+        message(STATUS "GNU Readline support enabled")
+        add_compile_definitions(ENABLE_READLINE)
+        target_link_libraries(sblang readline)
+        target_link_libraries(sbl m dl sblang readline)
+    else()
+        message(FATAL_ERROR "GNU Readline requested but not found")
+    endif()
+else()
+    message(STATUS "Readline support disabled")
+endif()
