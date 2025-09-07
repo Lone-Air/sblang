@@ -521,6 +521,31 @@ static _sbValue builtin_toString(_sbVM* vm, _sbValue* args, int arg_count) {
     return toString(vm, args[0], false);
 }
 
+/* Built-in toNumber function */
+static _sbValue builtin_toNumber(_sbVM* vm, _sbValue* args, int arg_count) {
+    if (arg_count != 1) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "toNumber() expects exactly 1 argument");
+        return create_null();
+    }
+
+    if (args[0].type != VAL_STRING) {
+        vm_error(vm, VM_TYPE_ERROR, "toNumber(): argument should be a string");
+        return create_null();
+    }
+
+    return create_number(atof(args[0].as.string));
+}
+
+/* Built-in repr function */
+static _sbValue builtin_repr(_sbVM* vm, _sbValue* args, int arg_count) {
+    if (arg_count != 1) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "repr() expects exactly 1 argument");
+        return create_null();
+    }
+
+    return toString(vm, args[0], true);
+}
+
 static void register_builtin_variables(_sbVM* vm) {
     //printf("DEBUG: Starting register_builtin_variables\n");
     
@@ -556,6 +581,8 @@ void register_builtin_functions(_sbVM* vm) {
     vm_register_native(vm, "type", builtin_type);
     vm_register_native(vm, "address", builtin_address);
     vm_register_native(vm, "toString", builtin_toString);
+    vm_register_native(vm, "toNumber", builtin_toNumber);
+    vm_register_native(vm, "repr", builtin_repr);
     vm_register_native(vm, "exit", builtin_exit);
 
     register_builtin_variables(vm);

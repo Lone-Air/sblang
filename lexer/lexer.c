@@ -87,6 +87,7 @@ _sbToken* _sbPreLexer(const char* src){ // Pre-Lexer
     int line = 0;
 
     int nummode = 0;
+    bool hexmode = false;
 
     int strmode = 0;
     char strfront = '\0';
@@ -109,6 +110,7 @@ _sbToken* _sbPreLexer(const char* src){ // Pre-Lexer
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
+                    hexmode = false;
                     append(buffer, c, nullptr);
                     SETPOS(col, line, pos);
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbSym);
@@ -134,6 +136,7 @@ _sbToken* _sbPreLexer(const char* src){ // Pre-Lexer
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
+                    hexmode = false;
                 }
                 if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
@@ -194,6 +197,7 @@ end_of_note:
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
+                    hexmode = false;
                 }
                 if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
@@ -230,6 +234,7 @@ end_of_note:
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
+                    hexmode = false;
                 }
                 if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
@@ -266,6 +271,7 @@ end_of_note:
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
+                    hexmode = false;
                 }
                 if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
@@ -302,6 +308,7 @@ end_of_note:
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
+                    hexmode = false;
                 }
                 if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
@@ -338,6 +345,7 @@ end_of_note:
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
+                    hexmode = false;
                 }
                 if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
@@ -374,7 +382,7 @@ end_of_note:
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     nummode = 0;
-                    
+                    hexmode = false;
                 }
                 if (!(strcmp(buffer->data->dat_char, "") == 0)){ /* If here were keywords within buffer, save it and then continue */
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _keyword_detect(buffer->data->dat_char));
@@ -425,6 +433,7 @@ end_of_note:
             case '\'':  case '"':
                 if (nummode){ // End of number mode and save the number
                     nummode = 0;
+                    hexmode = false;
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                 }
@@ -451,6 +460,7 @@ end_of_note:
             case '\\':
                 if (nummode){
                     nummode = 0;
+                    hexmode = false;
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                 }
@@ -487,6 +497,7 @@ end_of_note:
                 }
                 if (nummode){
                     nummode = 0;
+                    hexmode = false;
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     break;
@@ -505,6 +516,7 @@ end_of_note:
                 }
                 if (nummode){ // End a number
                     nummode = 0;
+                    hexmode = false;
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                     line ++;
@@ -522,8 +534,25 @@ end_of_note:
                 pos = 0;
                 break; /* Next line */
             default:
+                if (hexmode && nummode) {
+                    switch (c) {
+                        case 'a': case 'b': case 'c':
+                        case 'd': case 'e': case 'f':
+                            append(buffer, c, nullptr);
+                            goto hexmode_next;
+                        default:
+                            goto non_hexmode;
+                    }
+                }
+                non_hexmode:
                 if (nummode){
+                    if (c == 'x' && !hexmode) {
+                        hexmode = true;
+                        append(buffer, c, nullptr);
+                        break;
+                    }
                     nummode = 0;
+                    hexmode = false;
                     UPDATE(buffer->data->dat_char, tk_sc, tk_sl, tk_sp, _sbNum);
                     RESET();
                 }
@@ -535,6 +564,7 @@ end_of_note:
                     SETPOS(col, line, pos);
                 }
                 append(buffer, c, nullptr);
+                hexmode_next:
                 break;
         }
     col ++;
