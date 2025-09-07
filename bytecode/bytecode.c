@@ -758,7 +758,7 @@ bool generate_struct(BytecodeGenerator* gen, ASTNode* node) {
     int member_count = 0;
 
     if (members && members->type == _sbMEMBER_LIST) {
-        for (int i = 0; i < members->data.list.count; i++) {
+        for (int i = members->data.list.count - 1; i >= 0; i--) {
             ASTNode* member = members->data.list.items[i];
             if (member->type == _sbIDENTIFIER) {
                 char* member_name = _s_strdup(member->data.str_value);

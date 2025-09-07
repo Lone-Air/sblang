@@ -673,6 +673,17 @@ _sbValue create_function(_sbVM* vm, _sbVFunction* func, size_t chunk_id) {
 }
 
 /**
+ * Create struct value
+ */
+_sbValue create_struct(_sbVM* vm, _sbVStruct* _struct) {
+    _sbValue val;
+    val.type = VAL_STRUCT;
+    val.freed = false;
+    val.as.struct_def = _struct;
+    return val;
+}
+
+/**
  * Create native function value
  */
 _sbValue create_native(_sbNativeFunction func) {
@@ -2670,7 +2681,7 @@ VMError vm_execute_instruction(_sbVM* vm) {
                     }
                     free(vm->structs[i].members);
 
-                    vm->structs[i].member_count = member_count.as.number;
+                    vm->structs[i].member_count = (size_t)member_count.as.number;
                     vm->structs[i].members = members;
                     goto end_of_create_struct;
                 }
@@ -2680,8 +2691,11 @@ VMError vm_execute_instruction(_sbVM* vm) {
             vm->struct_count++;
             vm->structs = realloc(vm->structs, (vm->struct_count + 1) * sizeof(_sbVStruct));
             vm->structs[vm->struct_count - 1].name = _s_strdup(struct_name);
-            vm->structs[vm->struct_count - 1].member_count = member_count.as.number;
+            vm->structs[vm->struct_count - 1].member_count = (size_t)member_count.as.number;
             vm->structs[vm->struct_count - 1].members = members;
+
+            _sbValue _struct = create_struct(vm, &vm->structs[vm->struct_count - 1]);
+            vm_define_global(vm, vm->structs[vm->struct_count - 1].name, _struct);
 
 end_of_create_struct:
 

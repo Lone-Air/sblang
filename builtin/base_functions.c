@@ -215,7 +215,13 @@ static char* c2s(char c) {
 char* double_to_string(double value) {
     // Temporary buffer
     char temp[350];
-    int len = snprintf(temp, 350, "%g", value);
+    int len;
+    if (value == (long long int)value) {
+        len = snprintf(temp, 350, "%lld", (long long int)value);
+    }
+    else {
+        len = snprintf(temp, 350, "%.6g", value);
+    }
 
     // Real length of buffer
     char* result = (char*)malloc((len + 1) * sizeof(char));
@@ -251,7 +257,7 @@ static _sbValue builtin_print(_sbVM* vm, _sbValue* args, int arg_count) {
                 printf("%s", args[i].as.boolean ? "true" : "false");
                 break;
             default:
-                printf("<object>");
+                printf("%s", toString(vm, args[i], false).as.string);
                 break;
         }
 

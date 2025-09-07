@@ -325,6 +325,9 @@ extern _sbValue create_bool(bool b);
 /* Create function value */
 extern _sbValue create_function(_sbVM* vm, _sbVFunction* func, size_t chunk_id);
 
+/* Create function value */
+extern _sbValue create_struct(_sbVM* vm, _sbVStruct* _struct);
+
 /* Create native function value */
 extern _sbValue create_native(_sbNativeFunction func);
 
