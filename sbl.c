@@ -532,20 +532,6 @@ static bool execute_file(const char* input_file) {
     return true;
 }
 
-bool is_empty(const char *str) {
-    if (!str) {
-        return false;
-    }
-
-    for (; *str != '\0'; ++str) {
-        if (!isspace((unsigned char)*str)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 static char* _sbl_input(const char *s) {
     char* buffer;
 #ifndef ENABLE_READLINE

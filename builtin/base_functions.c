@@ -18,6 +18,90 @@
 #endif
 
 char* sep_s;
+_sbVM* current_vm;
+
+#ifdef ENABLE_READLINE
+
+static int rl_tab_event(int count, int key) {
+    if (is_empty(rl_line_buffer)) {
+        rl_insert_text("\t");
+        return 0;
+    }
+
+    //rl_complete_internal(0);
+    //rl_forced_update_display();
+
+    return rl_complete(count, key);
+}
+
+static char* first_x_data(const char* _s, size_t x){
+    char* result = (char*)calloc(x+1, sizeof(char));
+    assert(result != nullptr);
+    for(int i = 0; i < x; i++){
+        result[i] = _s[i];
+        if(i == x - 1)
+            result[i + 1] = '\0';
+    }
+    return result;
+}
+
+static char* rl_generator(const char* part, int state){
+    char* _ptr;
+    char* _result = nullptr;
+    char* _temp;
+
+    int ok = 0;
+
+    if (current_vm->locals) {
+        for(int i = 0; i < current_vm->locals->count; i++){
+            _ptr = current_vm->locals->vars[i].name;
+            _temp = first_x_data(_ptr, strlen(part));
+            if(strcmp(_temp, part) == 0 || strcmp(part, "") == 0){
+                if(state > ok)
+                    ok++;
+                else{
+                    _result = _s_strdup(_ptr);
+                    free(_temp);
+                    return _result;
+                }
+            }
+            free(_temp);
+        }
+    }
+
+    for(int i = 0; i < current_vm->globals.count; i++){
+        _ptr = current_vm->globals.vars[i].name;
+        _temp = first_x_data(_ptr, strlen(part));
+        if(strcmp(_temp, part) == 0 || strcmp(part, "") == 0){
+            if(state > ok)
+                ok++;
+            else{
+                _result = _s_strdup(_ptr);
+                free(_temp);
+                return _result;
+            }
+        }
+        free(_temp);
+    }
+
+    return _result;
+}
+
+#endif
+
+bool is_empty(const char *str) {
+    if (!str) {
+        return false;
+    }
+
+    for (; *str != '\0'; ++str) {
+        if (!isspace((unsigned char)*str)) {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 const char* v_type(_sbValue value) {
     switch (value.type) {
@@ -570,6 +654,13 @@ static void register_builtin_variables(_sbVM* vm) {
 
 /* Register built-in functions */
 void register_builtin_functions(_sbVM* vm) {
+    current_vm = vm;
+
+#ifdef ENABLE_READLINE
+    //rl_bind_key('\t', rl_tab_event);
+    rl_completion_entry_function = rl_generator;
+#endif
+
     sep_s = _s_strdup(" ");
 
     vm_register_native(vm, "print", builtin_print);
