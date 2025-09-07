@@ -608,10 +608,13 @@ void run_repl() {
         check:
         _sbToken* tk = _sbLexer(buf);
         if (!tk) continue;
+
         Parser* parser = create_tkstate(tk);
         assert(parser != nullptr);
+
         reset_error();
         ASTNode* ast = parse_program(parser);
+
         if (check_for_incomplete_syntax()) {
             freeTkList(tk);
             free_ast(ast);
@@ -621,12 +624,19 @@ void run_repl() {
             char* continue_input = _sbl_input(">> ");
             if (continue_input == nullptr) break;
             if (is_empty(continue_input)) goto addition_input;
+
+#ifdef ENABLE_READLINE
+            add_history(continue_input);
+#endif
             int len = strlen(buf) + strlen(continue_input);
+
             char* nbuf = calloc(len + 2, sizeof(char));
             assert(nbuf != nullptr);
+
             strcat(nbuf, buf);
             strcat(nbuf, "\n");
             strcat(nbuf, continue_input);
+
             free(continue_input);
             free(buf);
             buf = nbuf;
@@ -665,12 +675,13 @@ void run_repl() {
 
         _sbValue result = vm_peek(vm, 0);
         if (result.type != VAL_NULL) {
-            _sbValue s = toString(vm, result);
-            printf("-> %s\n", s.as.string);
+            _sbValue s;
+            if (result.type == VAL_STRING)
+                s = toString(vm, result, true);
+            else
+                s = toString(vm, result, false);
+            printf("(%s)-> %s\n", v_type(result), s.as.string);
         }
-        //free_value(result);
-
-        //destroy_vm_stacks(vm);
         vm->stack_top = 0;
 
         clean:

@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #ifdef ENABLE_READLINE
 #include <readline/readline.h>
@@ -18,19 +19,94 @@
 
 char* sep_s;
 
-_sbValue toString(_sbVM* vm, _sbValue value) {
+const char* v_type(_sbValue value) {
     switch (value.type) {
         case VAL_NULL:
-            return create_string(vm, "null");
+            return "null";
+        case VAL_NUMBER:
+            return "number";
+        case VAL_STRING:
+            return "string";
+        case VAL_BOOL:
+            return "bool";
+        case VAL_FUNCTION:
+            return "function";
+        case VAL_NATIVE:
+            return "native";
+        case VAL_STRUCT:
+            return "struct";
+        case VAL_STRUCT_INSTANCE:
+            return "instance";
+        case VAL_LIST:
+            return "list";
+        default:
+            return "unknown";
+    }
+}
+
+char *repr(const char *s) {
+    size_t len = strlen(s);
+
+    char *buf = malloc(len * 4 + 3);
+    if (!buf) return nullptr;
+
+    char quote = '\'';
+    if (strchr(s, '\'')) {
+        quote = '"';
+    }
+
+    char *p = buf;
+    *p++ = quote;
+
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        switch (c) {
+            case '\n': *p++='\\'; *p++='n'; break;
+            case '\t': *p++='\\'; *p++='t'; break;
+            case '\r': *p++='\\'; *p++='r'; break;
+            case '\f': *p++='\\'; *p++='f'; break;
+            case '\v': *p++='\\'; *p++='v'; break;
+            case '\\': *p++='\\'; *p++='\\'; break;
+            case '\'':
+                if (quote == '\'') { *p++='\\'; *p++='\''; }
+                else *p++='\'';
+                break;
+            case '"':
+                if (quote == '"') { *p++='\\'; *p++='"'; }
+                else *p++='"';
+                break;
+            default:
+                if (isprint(c)) {
+                    *p++ = c;
+                } else {
+                    sprintf(p, "\\x%02x", c);
+                    p += 4;
+                }
+        }
+    }
+
+    *p++ = quote;
+    *p = '\0';
+    return buf;
+}
+
+_sbValue toString(_sbVM* vm, _sbValue value, bool _repr) {
+    char* result;
+    switch (value.type) {
+        case VAL_NULL:
+            result = "null";
+            break;
         case VAL_NUMBER:
             char* _s = double_to_string(value.as.number);
-            _sbValue v = create_string(vm,_s);
+            result = _s_strdup(_s);
             free(_s);
-            return v;
+            break;
         case VAL_STRING:
-            return create_string(vm,value.as.string);
+            result = _s_strdup(value.as.string);
+            break;
         case VAL_BOOL:
-            return create_string(vm,value.as.boolean ? "true" : "false");
+            result = _s_strdup(value.as.boolean ? "true" : "false");
+            break;
         case VAL_FUNCTION: {
             const char* source_file = value.as.function->source_code_file ? value.as.function->source_code_file : "<unknown>";
             const char* func_name = value.as.function->name ? value.as.function->name : "<unnamed>";
@@ -40,9 +116,9 @@ _sbValue toString(_sbVM* vm, _sbValue value) {
             strcat(_s1, ":");
             strcat(_s1, source_file);
             strcat(_s1, ">");
-            _sbValue v1 = create_string(vm,_s1);
+            result = _s_strdup(_s1);
             free(_s1);
-            return v1;
+            break;
         }
         case VAL_NATIVE:
             return create_string(vm,"<native_function>");
@@ -65,9 +141,9 @@ _sbValue toString(_sbVM* vm, _sbValue value) {
                     strcat(_s3, ", ");
             }
             strcat(_s3, "}");
-            _sbValue v3 = create_string(vm,_s3);
+            result = _s_strdup(_s3);
             free(_s3);
-            return v3;
+            break;
         case VAL_STRUCT_INSTANCE:
             ssize_t size1 = 13;
             size1 += strlen(value.as.instance->struct_def->name);
@@ -75,14 +151,58 @@ _sbValue toString(_sbVM* vm, _sbValue value) {
             strcpy(_s4, "{Instance[");
             strcat(_s4, value.as.instance->struct_def->name);
             strcat(_s4, "]}");
-            _sbValue v4 = create_string(vm,_s4);
+            result = _s_strdup(_s4);
             free(_s4);
-            return v4;
+            break;
         case VAL_LIST:
-            return create_string(vm,"<list object>");
+            char* _s5 = calloc(2, sizeof (char));
+            size_t len;
+            assert(_s5 != nullptr);
+            _s5[0] = '[';
+            for (int i = 0; i < value.as.list->count; i++) {
+                _sbValue _result;
+                if (value.as.list->items[i].type == VAL_STRING)
+                    _result = toString(vm, value.as.list->items[i], true);
+                else
+                    _result = toString(vm, value.as.list->items[i], false);
+                if (i > 0) {
+                    len = strlen(_s5) + strlen(_result.as.string) + 3;
+                    _s5 = realloc(_s5, len * sizeof (char));
+                    assert(_s5 != nullptr);
+                    strcat(_s5, ", ");
+                }
+                else {
+                    len = strlen(_s5) + strlen(_result.as.string) + 1;
+                    _s5 = realloc(_s5, len * sizeof (char));
+                    assert(_s5 != nullptr);
+                }
+                strcat(_s5, _result.as.string);
+                _s5[len - 1] = '\0';
+            }
+            len = strlen(_s5) + 2;
+            _s5 = realloc(_s5, len * sizeof (char));
+            strcat(_s5, "]");
+            result = _s_strdup(_s5);
+            free(_s5);
+            break;
         default:
-            return create_string(vm,"<?undefined type>");
+            result = _s_strdup("<?unknown type>");
+            break;
     }
+
+    _sbValue result_v;
+    if (_repr) {
+        char* repr_s = repr(result);
+        free(result);
+        result_v = create_string(vm, repr_s);
+        free(repr_s);
+    }
+    else {
+        result_v = create_string(vm, result);
+        free(result);
+    }
+
+    return result_v;
 }
 
 static char* c2s(char c) {
@@ -361,28 +481,9 @@ static _sbValue builtin_type(_sbVM* vm, _sbValue* args, int arg_count) {
         return create_null();
     }
 
-    switch (args[0].type) {
-        case VAL_NULL:
-            return create_string(vm, "null");
-        case VAL_NUMBER:
-            return create_string(vm, "number");
-        case VAL_STRING:
-            return create_string(vm,"string");
-        case VAL_BOOL:
-            return create_string(vm,"bool");
-        case VAL_FUNCTION:
-            return create_string(vm,"function");
-        case VAL_NATIVE:
-            return create_string(vm,"native");
-        case VAL_STRUCT:
-            return create_string(vm,"struct");
-        case VAL_STRUCT_INSTANCE:
-            return create_string(vm,"instance");
-        case VAL_LIST:
-            return create_string(vm,"list");
-        default:
-            return create_string(vm,"unknown");
-    }
+    _sbValue result = create_string(vm, v_type(args[0]));
+
+    return result;
 }
 
 /* Built-in address function */
@@ -417,7 +518,7 @@ static _sbValue builtin_toString(_sbVM* vm, _sbValue* args, int arg_count) {
         return create_null();
     }
 
-    return toString(vm, args[0]);
+    return toString(vm, args[0], false);
 }
 
 static void register_builtin_variables(_sbVM* vm) {

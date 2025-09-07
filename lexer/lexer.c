@@ -56,6 +56,8 @@ short backslash(char c){ // Transfer the backslash with character into single ch
         case 't':  return '\t';
         case 'e':  return '\033';
         case 'r':  return '\r';
+        case 'f':  return '\f';
+        case 'v':  return '\v';
         case '\n': return -3;
     }
     return -2;

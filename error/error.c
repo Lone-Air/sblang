@@ -113,6 +113,10 @@ bool require_semicolon(Parser* parser) {
 
     // require ';'
     if (!match_token(parser, ";")) {
+        if (peek(parser) != nullptr) { // Fatal error
+            syntaxError(parser, "invalid syntax");
+            return false;
+        }
         missing_semicolon(parser);
         return false;
     }

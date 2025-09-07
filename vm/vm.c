@@ -2446,9 +2446,14 @@ VMError vm_execute_instruction(_sbVM* vm) {
             for (int i = arg_count - 1; i >= 0; i--) {
                 _sbValue original = vm_pop(vm);
                 // Always make a copy to avoid memory management issues
-                args[i] = copy_value(vm, original);
-                // Free the original value since we have a copy
-                free_value_gc(vm, original);
+                if (original.type == VAL_LIST || original.type == VAL_STRUCT_INSTANCE) {
+                    args[i] = original;
+                }
+                else {
+                    args[i] = copy_value(vm, original);
+                    // Free the original value since we have a copy
+                    free_value_gc(vm, original);
+                }
             }
 
             // Get function name

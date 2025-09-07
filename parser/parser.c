@@ -132,6 +132,7 @@ bool check_ahead(Parser* parser, int offset, const char* expected) {
 
 ASTNode* create_ast_node(_sbNType type, Parser* parser) {
     ASTNode* node = calloc(1, sizeof(ASTNode));
+    if (!node) return nullptr;
     node->type = type;
     
     // Set source location information
@@ -318,6 +319,10 @@ ASTNode* parse_struct_definition(Parser* parser) {
     
     // parse member list
     if (match_token(parser, "{")) {
+        bool enabled_is = false;
+        if (incomplete_syntax)
+            enabled_is = true;
+        incomplete_syntax = true;
         _sbToken* open_brace = peek(parser);
         next(parser); // remove '{'
         
@@ -382,6 +387,9 @@ ASTNode* parse_struct_definition(Parser* parser) {
             free_ast(struct_def);
             return nullptr;
         }
+
+        if (!enabled_is)
+            incomplete_syntax = false;
     }
     else {
         expect_token(parser, "{");
@@ -470,6 +478,10 @@ ASTNode* parse_function_definition(Parser* parser) {
 
     // parse parameter list
     if (match_token(parser, "(")) {
+        bool enabled_is = false;
+        if (incomplete_syntax)
+            enabled_is = true;
+        incomplete_syntax = true;
         _sbToken* open_paren = peek(parser);
         next(parser); // remove '('
 
@@ -519,6 +531,9 @@ ASTNode* parse_function_definition(Parser* parser) {
         if (match_token(parser, ")")) {
             next(parser); // remove ')'
         }
+
+        if (!enabled_is)
+            incomplete_syntax = false;
     }
     else {
         // Lack of parameter list
@@ -684,6 +699,10 @@ ASTNode* parse_if_else_statement(Parser* parser) {
     ASTNode* if_stmt = create_ast_node(_sbIF, parser);
 
     if (match_token(parser, "(")) {
+        bool enabled_is = false;
+        if (incomplete_syntax)
+            enabled_is = true;
+        incomplete_syntax = true;
         _sbToken* open_paren = peek(parser);
         next(parser); // remove'('
         if_stmt->data.if_stmt.condition = parse_expression(parser);
@@ -701,6 +720,9 @@ ASTNode* parse_if_else_statement(Parser* parser) {
             free_ast(if_stmt);
             return nullptr;
         }
+
+        if (!enabled_is)
+            incomplete_syntax = false;
     }
     else {
         // Lack of '('
@@ -740,6 +762,10 @@ ASTNode* parse_while_statement(Parser* parser) {
     ASTNode* while_stmt = create_ast_node(_sbWHILE, parser);
     
     if (match_token(parser, "(")) {
+        bool enabled_is = false;
+        if (incomplete_syntax)
+            enabled_is = true;
+        incomplete_syntax = true;
         _sbToken* open_paren = peek(parser);
         next(parser); // remove '('
         while_stmt->data.while_stmt.condition = parse_expression(parser);
@@ -758,6 +784,9 @@ ASTNode* parse_while_statement(Parser* parser) {
             free_ast(while_stmt);
             return nullptr;
         }
+
+        if (!enabled_is)
+            incomplete_syntax = false;
     }
     
     // body
@@ -779,6 +808,10 @@ ASTNode* parse_for_statement(Parser* parser) {
     if (!for_stmt) return nullptr;
     
     if (match_token(parser, "(")) {
+        bool enabled_is = false;
+        if (incomplete_syntax)
+            enabled_is = true;
+        incomplete_syntax = true;
         _sbToken* open_paren = peek(parser);
         next(parser); // remove '('
         
@@ -823,6 +856,9 @@ ASTNode* parse_for_statement(Parser* parser) {
             free_ast(for_stmt);
             return nullptr;
         }
+
+        if (!enabled_is)
+            incomplete_syntax = false;
     }
     else {
         // Lack of '('
@@ -878,6 +914,9 @@ ASTNode* parse_assignment(Parser* parser) {
 
 // Statement block
 ASTNode* parse_block(Parser* parser) {
+    bool enabled_is = false;
+    if (incomplete_syntax)
+        enabled_is = true;
     incomplete_syntax = true;
     bool multiline = true;
     if (!match_token(parser, "{"))
@@ -925,7 +964,8 @@ ASTNode* parse_block(Parser* parser) {
         }
     }
 
-    incomplete_syntax = false;
+    if (!enabled_is)
+        incomplete_syntax = false;
     return block;
 }
 
@@ -1201,6 +1241,10 @@ ASTNode* parse_postfix(Parser* parser) {
         }
         // function_call
         else if (match_token(parser, "(")) {
+            bool enabled_is = false;
+            if (incomplete_syntax)
+                enabled_is = true;
+            incomplete_syntax = true;
             _sbToken* open_paren = peek(parser);
             next(parser);
             
@@ -1261,12 +1305,19 @@ ASTNode* parse_postfix(Parser* parser) {
                 free_ast(func_call);  // This will free node as well
                 return nullptr;
             }
+
+            if (!enabled_is)
+                incomplete_syntax = false;
             
             func_call->data.function_call.arguments = args;
             node = func_call;
         }
         // process for accessing list
         else if (match_token(parser, "[")) {
+            bool enabled_is = false;
+            if (incomplete_syntax)
+                enabled_is = true;
+            incomplete_syntax = true;
             _sbToken* open_bracket = peek(parser);
             next(parser); // remove '['
 
@@ -1291,6 +1342,9 @@ ASTNode* parse_postfix(Parser* parser) {
                 free_ast(list_access);  // This will free node as well
                 return nullptr;
             }
+
+            if (!enabled_is)
+                incomplete_syntax = false;
 
             node = list_access;
         }
@@ -1386,6 +1440,10 @@ ASTNode* parse_primary(Parser* parser) {
 }
 
 ASTNode* parse_list(Parser* parser) {
+    bool enabled_is = false;
+    if (incomplete_syntax)
+        enabled_is = true;
+    incomplete_syntax = true;
     _sbToken* open_bracket = peek(parser);
     next(parser); // remove '['
     
@@ -1428,6 +1486,9 @@ ASTNode* parse_list(Parser* parser) {
         free_ast(list);
         return nullptr;
     }
+
+    if (!enabled_is)
+        incomplete_syntax = false;
     
     return list;
 }
