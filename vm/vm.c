@@ -295,6 +295,7 @@ _sbVM* create_vm() {
 
     vm->error_from_native = false;
     vm->error = false;
+    vm->destroy = false;
 
     return vm;
 }
@@ -376,6 +377,7 @@ void destroy_vm(_sbVM* vm) {
     if (!vm) return;
 
     vm->running = false;
+    vm->destroy = true;
 
     // Disable GC during cleanup to prevent interference
     vm->gc_enabled = false;
@@ -1029,7 +1031,7 @@ void free_value_gc(_sbVM* vm, _sbValue value) {
         case VAL_LIST:
             break;
         case VAL_STRUCT_INSTANCE:
-            if (value.as.instance) {
+            if (value.as.instance && vm->destroy) {
                 // First free all members recursively
                 if (value.as.instance->members && value.as.instance->struct_def) {
                     for (size_t i = 0; i < value.as.instance->struct_def->member_count; i++) {

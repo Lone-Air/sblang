@@ -1,0 +1,5 @@
+struct s1{m1, m2}
+v -> s1;
+b = [];
+append_list(b, v);
+b;

@@ -228,6 +228,7 @@ struct _sbVM {
     bool error;
     bool error_from_native;
     bool debug;
+    bool destroy;
 };
 
 /* Native function binding structure */
