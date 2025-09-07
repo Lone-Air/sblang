@@ -102,7 +102,8 @@ _sbToken* _sbPreLexer(const char* src){ // Pre-Lexer
             case '[': case ']': case '%':
             case '(': case ')': case '{':
             case '}': case '+': case '^':
-            case '~':
+            case '~': case ':': case '$':
+            case '@':
                 if (strmode){ /* Skip saving token within a string */
                     append(buffer, c, nullptr);
                 }
