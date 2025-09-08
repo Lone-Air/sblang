@@ -1,0 +1,7 @@
+a = [];
+b = a;
+append_list(a, "test");
+print("a address:", address(a));
+print("b address:", address(b));
+print("a count:", len(a));
+print("b count:", len(b));

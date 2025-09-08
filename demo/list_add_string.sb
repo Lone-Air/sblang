@@ -1,0 +1,5 @@
+a = [];
+b = a;
+append_list(a, "string");
+print("Address[a]:", toString(address(a)) + ", Content:", a, EOL);
+print("Address[b]:", toString(address(b)) + ", Content:", b, EOL);

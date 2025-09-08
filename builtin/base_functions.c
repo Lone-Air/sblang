@@ -460,7 +460,7 @@ static _sbValue builtin_append_list(_sbVM* vm, _sbValue* args, int arg_count) {
     }
 
     if (args[0].type == VAL_LIST) {
-        if (!append_list(args[0].as.list, args[1])) {
+        if (!append_list(vm, args[0].as.list, args[1])) {
             vm_error(vm, VM_MEMORY_ERROR, "append_list(): cannot expand size of list");
             return create_null();
         }
@@ -495,7 +495,7 @@ static _sbValue builtin_insert_list(_sbVM* vm, _sbValue* args, int arg_count) {
             return create_null();
         }
 
-        if (!insert_list(args[0].as.list, index, args[2])) {
+        if (!insert_list(vm, args[0].as.list, index, args[2])) {
             vm_error(vm, VM_MEMORY_ERROR, "insert_list(): cannot expand size of list");
             return create_null();
         }
@@ -583,7 +583,26 @@ static _sbValue builtin_address(_sbVM* vm, _sbValue* args, int arg_count) {
         return create_null();
     }
 
-    return create_number((uintptr_t)&args[0].as);
+    uintptr_t address = 0;
+    switch (args[0].type) {
+        case VAL_STRING:
+            address = (uintptr_t)args[0].as.string;
+            break;
+        case VAL_LIST:
+            address = (uintptr_t)args[0].as.list;
+            break;
+        case VAL_STRUCT_INSTANCE:
+            address = (uintptr_t)args[0].as.instance;
+            break;
+        case VAL_FUNCTION:
+            address = (uintptr_t)args[0].as.function;
+            break;
+        default:
+            address = (uintptr_t)&args[0].as;
+            break;
+    }
+
+    return create_number((double)address);
 }
 
 /* Built-in exit function */

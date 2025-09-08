@@ -1,0 +1,8 @@
+a = [];
+b = a;
+print("a:", a);
+print("b:", b);
+append_list(a, "test");
+print("After append:");
+print("a:", a);
+print("b:", b);

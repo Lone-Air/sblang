@@ -165,7 +165,7 @@ static _sbVariable* find_variable(_sbVariableTable* table, const char* name) {
 }
 
 /* Add or update variable in variable table */
-static bool add_variable(_sbVM* vm, _sbVariableTable* table, const char* name, _sbValue value) {
+bool add_variable(_sbVM* vm, _sbVariableTable* table, const char* name, _sbValue value) {
     if (!table || !name) return false;
 
     /* Check if variable already exists */
@@ -177,7 +177,15 @@ static bool add_variable(_sbVM* vm, _sbVariableTable* table, const char* name, _
         } else {
             free_value(existing->value);
         }
-        existing->value = copy_value(vm, value);
+        switch (value.type) {
+            case VAL_STRUCT_INSTANCE:
+            case VAL_LIST:
+                existing->value = value;
+                break;
+            default:
+                existing->value = copy_value(vm, value);
+                break;
+        }
         return true;
     }
 
@@ -193,7 +201,16 @@ static bool add_variable(_sbVM* vm, _sbVariableTable* table, const char* name, _
 
     /* Add new variable */
     table->vars[table->count].name = _s_strdup(name);
-    table->vars[table->count].value = copy_value(vm, value);
+    
+    switch (value.type) {
+        case VAL_STRUCT_INSTANCE:
+        case VAL_LIST:
+            table->vars[table->count].value = value;
+            break;
+        default:
+            table->vars[table->count].value = copy_value(vm, value);
+            break;
+    }
     table->count++;
 
     return true;
@@ -721,14 +738,22 @@ _sbValue create_list(_sbVM* vm) {
 /**
  * Append an item to list
  */
-_sbVList* append_list(_sbVList* list, _sbValue value) {
+_sbVList* append_list(_sbVM* vm, _sbVList* list, _sbValue value) {
     if (list->count + 1 > list->capacity) {
         list->capacity += 8;
         list->items = realloc(list->items, sizeof(_sbValue) * list->capacity);
         if (!list->items) return nullptr;
     }
 
-    list->items[list->count++] = value;
+    switch (value.type) {
+        case VAL_STRUCT_INSTANCE:
+        case VAL_LIST:
+            list->items[list->count++] = value;
+            break;
+        default:
+            list->items[list->count++] = copy_value(vm, value);
+            break;
+    }
 
     return list;
 }
@@ -736,7 +761,7 @@ _sbVList* append_list(_sbVList* list, _sbValue value) {
 /**
  * Insert an item into list
  */
-_sbVList* insert_list(_sbVList* list, int index, _sbValue value) {
+_sbVList* insert_list(_sbVM* vm, _sbVList* list, int index, _sbValue value) {
     _sbValue* new_list = malloc(sizeof(_sbValue) * list->capacity);
     if (!new_list) return nullptr;
 
@@ -750,7 +775,15 @@ _sbVList* insert_list(_sbVList* list, int index, _sbValue value) {
     int count = 0;
     for (int i = 0; i < list->count; i++) {
         if (i == index) {
-            new_list[count] = value;
+            switch (value.type) {
+                case VAL_STRUCT_INSTANCE:
+                case VAL_LIST:
+                    new_list[count] = value;
+                    break;
+                default:
+                    new_list[count] = copy_value(vm, value);
+                    break;
+            }
             count++;
         }
 
@@ -1534,7 +1567,17 @@ bool vm_set_variable(_sbVM* vm, const char* name, _sbValue value) {
             } else {
                 free_value(var->value);
             }
-            var->value = copy_value(vm, value);
+
+            switch (value.type) {
+                case VAL_STRUCT_INSTANCE:
+                case VAL_LIST:
+                    var->value = value;
+                    break;
+                default:
+                    var->value = copy_value(vm, value);
+                    break;
+            }
+
             // Check for global
             _sbVariable* var_g = find_variable(&vm->globals, name);
             if (var_g) { // Is global
@@ -1543,7 +1586,16 @@ bool vm_set_variable(_sbVM* vm, const char* name, _sbValue value) {
                 } else {
                     free_value(var_g->value);
                 }
-                var_g->value = copy_value(vm, value);
+
+                switch (value.type) {
+                    case VAL_STRUCT_INSTANCE:
+                    case VAL_LIST:
+                        var_g->value = value;
+                        break;
+                    default:
+                        var_g->value = copy_value(vm, value);
+                        break;
+                }
             }
             return true;
         }
@@ -1558,7 +1610,16 @@ bool vm_set_variable(_sbVM* vm, const char* name, _sbValue value) {
         } else {
             free_value(var->value);
         }
-        var->value = copy_value(vm, value);
+
+        switch (value.type) {
+            case VAL_STRUCT_INSTANCE:
+            case VAL_LIST:
+                var->value = value;
+                break;
+            default:
+                var->value = copy_value(vm, value);
+                break;
+        }
         return true;
     }
 

@@ -1,0 +1,6 @@
+a = [];
+print("a address before:", address(a));
+b = a;
+print("a address after b=a:", address(a));
+print("b address after b=a:", address(b));
+print("Are they the same?", address(a) == address(b));

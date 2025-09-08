@@ -306,6 +306,9 @@ extern _sbValue* vm_get_variable(_sbVM* vm, const char* name);
 /* Set variable value */
 extern bool vm_set_variable(_sbVM* vm, const char* name, _sbValue value);
 
+/* Add or update variable in variable table */
+extern bool add_variable(_sbVM* vm, _sbVariableTable* table, const char* name, _sbValue value);
+
 /* Define global variable */
 extern bool vm_define_global(_sbVM* vm, const char* name, _sbValue value);
 
@@ -338,10 +341,10 @@ extern _sbValue create_list(_sbVM* vm);
 /* ========== Value Operation Functions ========== */
 
 /* Append an item to list */
-extern _sbVList* append_list(_sbVList* list, _sbValue value);
+extern _sbVList* append_list(_sbVM* vm, _sbVList* list, _sbValue value);
 
 /* Insert an item into list */
-extern _sbVList* insert_list(_sbVList* list, int index, _sbValue value);
+extern _sbVList* insert_list(_sbVM* vm, _sbVList* list, int index, _sbValue value);
 
 /* Pop an item from list */
 extern _sbVList* pop_list(_sbVList* list);
