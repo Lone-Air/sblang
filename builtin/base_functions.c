@@ -13,6 +13,13 @@
 #include <stdlib.h>
 #include <assert.h>
 
+/* Structure to track visited list addresses for cycle detection */
+typedef struct {
+    void** addresses;
+    size_t count;
+    size_t capacity;
+} AddressSet;
+
 #ifdef ENABLE_READLINE
 #include <readline/readline.h>
 #endif
@@ -128,6 +135,75 @@ const char* v_type(_sbValue value) {
     }
 }
 
+/* Initialize address set */
+static AddressSet* create_address_set() {
+    AddressSet* set = malloc(sizeof(AddressSet));
+    if (!set) return NULL;
+    
+    set->addresses = malloc(sizeof(void*) * 8);
+    if (!set->addresses) {
+        free(set);
+        return NULL;
+    }
+    
+    set->count = 0;
+    set->capacity = 8;
+    return set;
+}
+
+/* Free address set */
+static void free_address_set(AddressSet* set) {
+    if (set) {
+        free(set->addresses);
+        free(set);
+    }
+}
+
+/* Check if address exists in set */
+static bool contains_address(AddressSet* set, void* addr) {
+    if (!set) return false;
+    
+    for (size_t i = 0; i < set->count; i++) {
+        if (set->addresses[i] == addr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Add address to set */
+static bool add_address(AddressSet* set, void* addr) {
+    if (!set) return false;
+    
+    if (set->count >= set->capacity) {
+        size_t new_capacity = set->capacity * 2;
+        void** new_addresses = realloc(set->addresses, sizeof(void*) * new_capacity);
+        if (!new_addresses) return false;
+        
+        set->addresses = new_addresses;
+        set->capacity = new_capacity;
+    }
+    
+    set->addresses[set->count++] = addr;
+    return true;
+}
+
+/* Remove address from set */
+static void remove_address(AddressSet* set, void* addr) {
+    if (!set) return;
+    
+    for (size_t i = 0; i < set->count; i++) {
+        if (set->addresses[i] == addr) {
+            /* Move last element to current position */
+            if (i < set->count - 1) {
+                set->addresses[i] = set->addresses[set->count - 1];
+            }
+            set->count--;
+            break;
+        }
+    }
+}
+
 char *repr(const char *s) {
     size_t len = strlen(s);
 
@@ -174,7 +250,8 @@ char *repr(const char *s) {
     return buf;
 }
 
-_sbValue toString(_sbVM* vm, _sbValue value, bool _repr) {
+/* Internal toString with cycle detection */
+static _sbValue toString_internal(_sbVM* vm, _sbValue value, bool _repr, AddressSet* visited) {
     char* result;
     switch (value.type) {
         case VAL_NULL:
@@ -239,6 +316,18 @@ _sbValue toString(_sbVM* vm, _sbValue value, bool _repr) {
             free(_s4);
             break;
         case VAL_LIST:
+            /* Check for circular reference */
+            if (contains_address(visited, value.as.list)) {
+                result = _s_strdup("[...]");
+                break;
+            }
+            
+            /* Add current list address to visited set */
+            if (!add_address(visited, value.as.list)) {
+                result = _s_strdup("[<memory error>]");
+                break;
+            }
+            
             char* _s5 = calloc(2, sizeof (char));
             size_t len;
             assert(_s5 != nullptr);
@@ -246,9 +335,9 @@ _sbValue toString(_sbVM* vm, _sbValue value, bool _repr) {
             for (int i = 0; i < value.as.list->count; i++) {
                 _sbValue _result;
                 if (value.as.list->items[i].type == VAL_STRING)
-                    _result = toString(vm, value.as.list->items[i], true);
+                    _result = toString_internal(vm, value.as.list->items[i], true, visited);
                 else
-                    _result = toString(vm, value.as.list->items[i], false);
+                    _result = toString_internal(vm, value.as.list->items[i], false, visited);
                 if (i > 0) {
                     len = strlen(_s5) + strlen(_result.as.string) + 3;
                     _s5 = realloc(_s5, len * sizeof (char));
@@ -268,6 +357,9 @@ _sbValue toString(_sbVM* vm, _sbValue value, bool _repr) {
             strcat(_s5, "]");
             result = _s_strdup(_s5);
             free(_s5);
+            
+            /* Remove current list address from visited set */
+            remove_address(visited, value.as.list);
             break;
         default:
             result = _s_strdup("<?unknown type>");
@@ -287,6 +379,17 @@ _sbValue toString(_sbVM* vm, _sbValue value, bool _repr) {
     }
 
     return result_v;
+}
+
+_sbValue toString(_sbVM* vm, _sbValue value, bool _repr) {
+    AddressSet* visited = create_address_set();
+    if (!visited) {
+        return create_string(vm, "<memory error>");
+    }
+    
+    _sbValue result = toString_internal(vm, value, _repr, visited);
+    free_address_set(visited);
+    return result;
 }
 
 static char* c2s(char c) {

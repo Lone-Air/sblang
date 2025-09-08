@@ -2485,6 +2485,28 @@ VMError vm_execute_instruction(_sbVM* vm) {
             break;
         }
 
+        case OP_LIST_STORE: {
+            _sbValue item = vm_pop(vm);
+            _sbValue list = vm_pop(vm);
+            _sbValue value = vm_pop(vm);
+
+            size_t idx = (int)item.as.number;
+            if (idx < 0) {
+                idx = list.as.list->count + idx;
+            }
+
+            if (idx < 0 || idx >= (size_t)list.as.list->count) {
+                vm_error(vm, VM_INDEX_OUT_OF_BOUNDS, "List index out of bounds");
+                free_value_gc(vm, item);
+                free_value_gc(vm, list);
+                return VM_INDEX_OUT_OF_BOUNDS;
+            }
+
+            free_value_gc(vm, list.as.list->items[idx]);
+            list.as.list->items[idx] = value;
+            break;
+        }
+
         case OP_JUMP: {
             // Unconditional jump
             vm->pc = inst->operand.int_value;
@@ -2621,6 +2643,7 @@ VMError vm_execute_instruction(_sbVM* vm) {
 
                     step_chunk(vm, func->chunk_id);
                     vm->pc = func->start_addr;  // Set PC to function start
+                    //vm_execute(vm);
                 }
                 else {
                     vm_error(vm, VM_TYPE_ERROR, "'%s' is not a function", func_name.as.string);
@@ -2936,7 +2959,7 @@ end_of_create_struct:
             _sbVList* l = list.as.list;
             if (l->count >= l->capacity) {
                 // Expand list capacity
-                size_t new_capacity = l->capacity == 0 ? 4 : l->capacity * 2;
+                size_t new_capacity = l->capacity == 0 ? 4 : l->capacity + 16;
                 _sbValue* new_items = (_sbValue*)realloc(l->items, new_capacity * sizeof(_sbValue));
                 if (!new_items) {
                     vm_error(vm, VM_MEMORY_ERROR, "Failed to resize list");

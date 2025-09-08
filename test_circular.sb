@@ -1,0 +1,7 @@
+// Test simple list printing first
+a = [1, 2, 3];
+print("Simple list: ", toString(a), '\n');
+
+// Test nested list
+b = [4, [5, 6], 7];
+print("Nested list: ", toString(b), '\n');
