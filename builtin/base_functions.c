@@ -758,6 +758,21 @@ static _sbValue builtin_repr(_sbVM* vm, _sbValue* args, int arg_count) {
     return toString(vm, args[0], true);
 }
 
+/* Built-in system function */
+static _sbValue builtin_system(_sbVM* vm, _sbValue* args, int arg_count) {
+    if (arg_count != 1) {
+        vm_error(vm, VM_ARGUMENT_MISMATCH, "system() expects exactly 1 argument");
+        return create_null();
+    }
+
+    if (args[0].type != VAL_STRING) {
+        vm_error(vm, VM_TYPE_ERROR, "system(): argument should be a string");
+        return create_null();
+    }
+
+    return create_number(system(args[0].as.string));
+}
+
 static void register_builtin_variables(_sbVM* vm) {
     //printf("DEBUG: Starting register_builtin_variables\n");
     
@@ -770,6 +785,7 @@ static void register_builtin_variables(_sbVM* vm) {
     
     vm_define_global(vm, "true", create_bool(true));
     vm_define_global(vm, "false", create_bool(false));
+    vm_define_global(vm, "null", create_null());
     
     //printf("DEBUG: Finished register_builtin_variables\n");
 }
@@ -787,6 +803,7 @@ void register_builtin_functions(_sbVM* vm) {
 
     vm_register_native(vm, "print", builtin_print);
     vm_register_native(vm, "input", builtin_input);
+    vm_register_native(vm, "system", builtin_system);
     vm_register_native(vm, "setsep", builtin_setsep);
     vm_register_native(vm, "len", builtin_len);
     vm_register_native(vm, "dupe", builtin_dupe);

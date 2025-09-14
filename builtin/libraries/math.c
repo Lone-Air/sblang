@@ -250,7 +250,7 @@ static _sbValue native_ldexp(_sbVM* vm, _sbValue* args, int arg_count) {
         return create_null();
     }
 
-    return create_number(ldexp(args[0].as.number, args[1].as.number));
+    return create_number(ldexp(args[0].as.number, (int)args[1].as.number));
 }
 
 /* Native sin function */

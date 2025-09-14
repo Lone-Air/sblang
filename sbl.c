@@ -668,7 +668,6 @@ void run_repl() {
                 s = toString(vm, result, false);
             printf("(%s)-> %s\n", v_type(result), s.as.string);
         }
-        add_variable(vm, &vm->globals, "_", result);
         vm->stack_top = 0;
 
         clean:

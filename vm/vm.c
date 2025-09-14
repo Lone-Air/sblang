@@ -3055,6 +3055,11 @@ VMError vm_execute(_sbVM* vm) {
             // Error report had moved into vm_error
             return error;
         }
+
+        _sbValue _r = vm_peek(vm, 0);
+        if (_r.type != VAL_NULL) {
+            add_variable(vm, &vm->globals, "_", _r);
+        }
     }
 
     return VM_OK;
