@@ -243,6 +243,11 @@ _sbVM* create_vm() {
     vm->instruction_count = 0;
     vm->pc = 0; // Program counter
 
+    /* Goto blocks */
+    vm->blocks = (_sbGotoBlock*)malloc(sizeof(_sbGotoBlock) * VM_INITIAL_CHUNK_SIZE);
+    vm->block_count = 0;
+    vm->block_capacity = VM_INITIAL_CHUNK_SIZE;
+
     /* Initialize dynamic stack */
     vm->stack = (_sbValue*)malloc(VM_INITIAL_STACK_SIZE * sizeof(_sbValue));
     vm->stack_top = 0;
@@ -386,6 +391,43 @@ extern size_t save_chunk(_sbVM* vm) {
     return vm->chunk_id;
 }
 
+/**
+ * Create a new block in the virtual machine and define it as a variable
+ */
+size_t create_block(_sbVM* vm, const char* name, size_t pc, size_t chunk_id) {
+    if (!vm) return -1;
+    if (vm->block_count + 1 >= vm->block_capacity) {
+        vm->block_capacity += VM_INITIAL_GOTO_SIZE;
+        vm->blocks = (_sbGotoBlock*)realloc(vm->blocks, vm->block_capacity * sizeof(_sbGotoBlock));
+    }
+
+    bool defined = find_block(vm, name) == -1 ? false : true;
+    if (!defined) {
+        vm->blocks[vm->block_count].defined_pc = pc;
+        vm->blocks[vm->block_count].block_name = _s_strdup(name);
+        vm->blocks[vm->block_count].defined_subchunk = chunk_id;
+
+        _sbValue _block = create_vblock(vm, vm->blocks[vm->block_count]);
+        vm_define_global(vm, name, _block);
+        return vm->block_count ++;
+    }
+    else
+        return find_block(vm, name);
+}
+
+/**
+ * Find a defined block
+ */
+size_t find_block(_sbVM* vm, const char* name) {
+    if (!vm) return -1;
+    for (size_t i = 0; i < vm->block_count; i++) {
+        if (strcmp(vm->blocks[i].block_name, name) == 0) {
+            return i;
+        }
+    }
+
+    return -1;
+}
 
 /**
  * Destroy virtual machine instance and free all resources
@@ -455,6 +497,14 @@ void destroy_vm(_sbVM* vm) {
         vm->loaded_lib_count = 0;
     }
 
+    // Free blocks
+    if (vm->blocks) {
+        for (size_t i = 0; i < vm->block_count; i++) {
+            free(vm->blocks[i].block_name);
+        }
+        free(vm->blocks);
+    }
+
     // Free instruction array and string operands
     if (vm->chunks) {
         for (size_t j = 0; j < vm->chunk_count; j++) {
@@ -468,11 +518,12 @@ void destroy_vm(_sbVM* vm) {
                         inst->opcode == OP_LOAD_MODULE || inst->opcode == OP_FUNC_START ||
                         inst->opcode == OP_STRUCT_DEF || inst->opcode == OP_STRUCT_NEW ||
                         inst->opcode == OP_MEMBER_ACCESS || inst->opcode == OP_MEMBER_STORE ||
-                        inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
-                        if (inst->operand.str_value) {
-                            free(inst->operand.str_value);
-                            inst->operand.str_value = nullptr;
-                        }
+                        inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL ||
+                        inst->opcode == OP_GOTO_DEF) {
+                            if (inst->operand.str_value) {
+                                free(inst->operand.str_value);
+                                inst->operand.str_value = nullptr;
+                            }
                         }
                 }
                 free(vm->instructions);
@@ -481,10 +532,10 @@ void destroy_vm(_sbVM* vm) {
             }
             back_chunk(vm);
         }
-    }
 
-    free(vm->chunks);
-    free(vm->chunk_traceback);
+        free(vm->chunks);
+        free(vm->chunk_traceback);
+    }
 
     // Free function definitions
     if (vm->functions) {
@@ -542,6 +593,7 @@ void destroy_vm(_sbVM* vm) {
         free(vm->source_filename);
         vm->source_filename = nullptr;
     }
+
     if (vm->source_content) {
         free(vm->source_content);
         vm->source_content = nullptr;
@@ -701,6 +753,18 @@ _sbValue create_struct(_sbVM* vm, _sbVStruct* _struct) {
     val.as.struct_def = _struct;
     return val;
 }
+
+/**
+ * Create block value
+ */
+_sbValue create_vblock(_sbVM* vm, _sbGotoBlock block) {
+    _sbValue val;
+    val.type = VAL_GOTO_BLOCK;
+    val.freed = false;
+    val.as.block = block;
+    return val;
+}
+
 
 /**
  * Create native function value
@@ -1213,6 +1277,15 @@ void vm_print_stack(_sbVM* vm) {
                 strcat(_s3, "}");
                 printf("%s", _s3);
                 free(_s3);
+            case VAL_GOTO_BLOCK:
+                const char* block_name = vm->stack[i].as.block.block_name ? vm->stack[i].as.block.block_name : "<unnamed>";
+                char* _s1 = calloc(9 + strlen(block_name), sizeof(char));
+                strcpy(_s1, "<block:");
+                strcat(_s1, block_name);
+                strcat(_s1, ">");
+                printf("%s", _s1);
+                free(_s1);
+                break;
             default: printf("<?undefined type>"); break;
         }
         printf("\n");
@@ -1291,6 +1364,8 @@ void vm_print_status(_sbVM* vm) {
                 case OP_STRUCT_NEW: printf("STRUCT_NEW %s", inst->operand.str_value); break;
                 case OP_MEMBER_ACCESS: printf("MEMBER_ACCESS %s", inst->operand.str_value); break;
                 case OP_MEMBER_STORE: printf("MEMBER_STORE %s", inst->operand.str_value); break;
+                case OP_GOTO_BLOCK: printf("GOTO"); break;
+                case OP_GOTO_DEF: printf("GOTO_DEF %s", inst->operand.str_value); break;
                 case OP_LIST_NEW: printf("LIST_NEW %d", inst->operand.int_value); break;
                 case OP_LIST_ACCESS: printf("LIST_ACCESS"); break;
                 case OP_LIST_STORE: printf("LIST_STORE"); break;
@@ -1361,6 +1436,15 @@ void vm_print_status(_sbVM* vm) {
         }
     }
 
+    if (vm->blocks) {
+        if (vm->block_count > 0) {
+            printf("\n=== GOTO Blocks ===\n");
+            for (size_t i = 0; i < vm->block_count; i++) {
+                printf("  %s (chunk: %lu, pc: %lu)", vm->blocks[i].block_name, vm->blocks[i].defined_subchunk, vm->blocks[i].defined_pc);
+            }
+        }
+    }
+
     if (vm->loaded_libs) {
         if (vm->loaded_lib_count > 0) {
             printf("\n=== Loaded libraries ===\n");
@@ -1371,7 +1455,7 @@ void vm_print_status(_sbVM* vm) {
         }
     }
 
-    printf("\n=== VM Information ===\n");
+    printf("\n\n=== VM Information ===\n");
     printf("Enabled GC: %s\n", vm->gc_enabled ? "true" : "false");
     if (vm->gc_enabled) {
         printf("GC Allocated: %lu\n", vm->gc_bytes_allocated);
@@ -1388,7 +1472,9 @@ void vm_print_status(_sbVM* vm) {
         total_instruction_count += vm->chunks[i].inst_count;
     }
     printf("Total instructions: %lu\n", total_instruction_count);
-    printf("Current instruction: %lu\n", vm->pc);
+    printf("Current instruction: %lu\n\n", vm->pc);
+
+    printf("Total blocks: %lu\n", vm->block_count);
     //printf("End instruction: %lu\n\n", vm->end_pc);
 
     printf("Stack size: %lu\n", vm->stack_capacity);
@@ -2490,7 +2576,22 @@ VMError vm_execute_instruction(_sbVM* vm) {
             _sbValue list = vm_pop(vm);
             _sbValue value = vm_pop(vm);
 
+            if (item.type != VAL_NUMBER) {
+                vm_error(vm, VM_TYPE_ERROR, "List access index must be an integer");
+                free_value_gc(vm, item);
+                free_value_gc(vm, list);
+                return VM_TYPE_ERROR;
+            }
+
             size_t idx = (int)item.as.number;
+
+            if ((double)idx != item.as.number) {
+                vm_error(vm, VM_TYPE_ERROR, "List access index must be an integer");
+                free_value_gc(vm, item);
+                free_value_gc(vm, list);
+                return VM_TYPE_ERROR;
+            }
+
             if (idx < 0) {
                 idx = list.as.list->count + idx;
             }
@@ -2504,6 +2605,45 @@ VMError vm_execute_instruction(_sbVM* vm) {
 
             free_value_gc(vm, list.as.list->items[idx]);
             list.as.list->items[idx] = value;
+            break;
+        }
+
+        case OP_GOTO_DEF: {
+            /*
+            _sbValue name = vm_pop(vm);
+            if (name.type != VAL_STRING) {
+                vm_error(vm, VM_TYPE_ERROR, "Block name must be a string");
+                free_value_gc(vm, name);
+                return VM_TYPE_ERROR;
+            }
+
+            create_block(vm, name.as.string, vm->pc, vm->chunk_id);
+            free_value_gc(vm, name);
+            */
+            break;
+        }
+
+        case OP_GOTO_BLOCK: {
+            _sbValue name = vm_pop(vm);
+            if (name.type != VAL_STRING) {
+                vm_error(vm, VM_TYPE_ERROR, "Block name must be a string");
+                free_value_gc(vm, name);
+                return VM_TYPE_ERROR;
+            }
+
+            size_t idx = find_block(vm, name.as.string);
+
+            if (idx == -1) {
+                vm_error(vm, VM_UNDEFINED_BLOCK, "block '%s' is not defined", name.as.string);
+                free_value_gc(vm, name);
+                return VM_UNDEFINED_BLOCK;
+            }
+
+            free_value_gc(vm, name);
+
+            step_chunk(vm, vm->blocks[idx].defined_subchunk);
+            vm->pc = vm->blocks[idx].defined_pc;
+
             break;
         }
 
@@ -3090,7 +3230,7 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
     for (size_t i = 0; i < gen->instructions->count; i++) {
         vm->instruction_count ++;
         vm->instructions = realloc(vm->instructions, (vm->instruction_count) * sizeof(Instruction));
-        //memset(&vm->instructions[vm->instruction_count - 1], 0, sizeof(Instruction));
+        memset(&vm->instructions[vm->instruction_count - 1], 0, sizeof(Instruction));
         Instruction* src = (Instruction*)gen->instructions->items[i];
         if (!src) break;
 
@@ -3120,6 +3260,13 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
             continue;
         }
 
+        if (src->opcode == OP_GOTO_DEF) {
+            /*vm->instructions[vm->instruction_count - 1] = *src;
+            vm->instructions[vm->instruction_count - 1].operand.int_value = src->operand.int_value - jmp_offset;*/
+            create_block(vm, src->operand.str_value, vm->instruction_count, vm->chunk_id);
+            continue;
+        }
+
         if (src->opcode == OP_FUNC_DEF) {
             vm->instruction_count --;
             jmp_offset += 2;
@@ -3145,6 +3292,7 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
                 }
 
                 vm->instructions = realloc(vm->instructions, (vm->instruction_count + 1) * sizeof(Instruction));
+                memset(&vm->instructions[vm->instruction_count], 0, sizeof(Instruction));
 
                 // Copy string operands
                 if (_src->opcode == OP_PUSH_STR || _src->opcode == OP_PUSH_IDENT ||
@@ -3162,6 +3310,9 @@ bool vm_load_bytecode(_sbVM* vm, BytecodeGenerator* gen) {
                     _src->opcode == OP_JUMP_IF_TRUE ) {
                     vm->instructions[vm->instruction_count] = *_src;
                     vm->instructions[vm->instruction_count].operand.int_value = _src->operand.int_value - jmp_offset_f;
+                }
+                else if (_src->opcode == OP_GOTO_DEF) {
+                    create_block(vm, _src->operand.str_value, vm->instruction_count + 1, vm->chunk_id);
                 }
                 else
                     vm->instructions[vm->instruction_count] = *_src;

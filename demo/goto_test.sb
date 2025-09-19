@@ -1,0 +1,6 @@
+function a(){
+block1:
+    print("YES!", EOL);
+}
+
+goto block1;

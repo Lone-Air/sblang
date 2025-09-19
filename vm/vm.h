@@ -17,6 +17,7 @@
 #define VM_INITIAL_SOURCE_FILE_PATH_TRACEBACK_SIZE 256  /* Initial sf_traceback depth */
 #define VM_INITIAL_CHUNK_SIZE 16  /* Initial vm chunks depth */
 #define VM_INITIAL_CHUNK_TRACEBACK_SIZE 128  /* Initial vm chunks traceback depth */
+#define VM_INITIAL_GOTO_SIZE 16  /* Initial vm goto blocks depth */
 
 /* Value type enumeration */
 typedef enum {
@@ -28,9 +29,10 @@ typedef enum {
     VAL_NATIVE,             /* Native function type */
     VAL_STRUCT,             /* Struct definition type */
     VAL_STRUCT_INSTANCE,    /* Struct instance type */
-    VAL_LIST,                /* List type */
+    VAL_LIST,               /* List type */
+    VAL_GOTO_BLOCK,         /* User defined goto block */
 
-    VAL_FREED                /* Freed value */
+    VAL_FREED               /* Freed value */
 } _sbValueType;
 
 /* Forward declarations */
@@ -81,6 +83,13 @@ typedef struct _sbGCObject {
     void* data;                 /* Pointer to the actual data */
 } _sbGCObject;
 
+/* Goto block */
+typedef struct {
+    size_t defined_pc;
+    size_t defined_subchunk;
+    char* block_name;
+}_sbGotoBlock;
+
 /* Value structure - supports multiple data types */
 struct _sbValue {
     _sbValueType type;         /* Value type */
@@ -93,6 +102,7 @@ struct _sbValue {
         _sbVStruct* struct_def;         /* Struct definition */
         _sbVStructInstance* instance;   /* Struct instance */
         _sbVList* list;                 /* List pointer */
+        _sbGotoBlock block;        /* Goto block */
     } as;
     bool freed;
 };
@@ -136,6 +146,7 @@ typedef enum {
     VM_INVALID_OPCODE,      /* Invalid opcode */
     VM_UNDEFINED_MEMBER,    /* Undefined member */
     VM_NOT_A_STRUCT,        /* Not a struct type */
+    VM_UNDEFINED_BLOCK      /* Undefined goto block */
 } VMError;
 
 /* Loaded shared library information */
@@ -169,6 +180,11 @@ struct _sbVM {
     Instruction* instructions;      /* Instructions array (From chunks) */
     size_t instruction_count;       /* Instruction count */
     size_t pc;                      /* Program counter */
+
+    /* Goto blocks */
+    _sbGotoBlock* blocks;
+    size_t block_count;
+    size_t block_capacity;
 
     /* Operand stack */
     _sbValue* stack;                   /* Dynamic operand stack */
@@ -247,6 +263,10 @@ extern size_t new_chunk(_sbVM* vm);
 extern size_t step_chunk(_sbVM* vm, size_t chunk_id);
 extern size_t back_chunk(_sbVM* vm);
 extern size_t save_chunk(_sbVM* vm);
+
+/* Block management */
+extern size_t create_block(_sbVM* vm, const char* name, size_t pc, size_t chunk_id);
+extern size_t find_block(_sbVM* vm, const char* name);
 
 /* enable debug for VM instance */
 extern void enable_debug(_sbVM* vm);
@@ -329,8 +349,11 @@ extern _sbValue create_bool(bool b);
 /* Create function value */
 extern _sbValue create_function(_sbVM* vm, _sbVFunction* func, size_t chunk_id);
 
-/* Create function value */
+/* Create struct value */
 extern _sbValue create_struct(_sbVM* vm, _sbVStruct* _struct);
+
+/* Create block value */
+extern _sbValue create_vblock(_sbVM* vm, _sbGotoBlock block);
 
 /* Create native function value */
 extern _sbValue create_native(_sbNativeFunction func);

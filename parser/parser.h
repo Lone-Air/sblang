@@ -16,7 +16,7 @@ typedef enum _sbNType{
     _sbFUNCTION_CALL, _sbIDENTIFIER, _sbARGUMENTS, _sbMODULE_LIST, _sbPARAMETER_LIST, _sbMEMBER_LIST, _sbGLOBAL_LIST,
     _sbNUMBER_LITERAL, _sbSTRING_LITERAL, _sbLIST_LITERAL,
     _sbBINARY_LITERAL, _sbUNARY_LITERAL, _sbNOTHING, _sbCONTINUE, _sbBREAK,
-    _sbASSIGNMENT, _sbLIST_ACCESS
+    _sbASSIGNMENT, _sbLIST_ACCESS, _sbGOTO, _sbGOTO_DEF
 }_sbNType;
 
 typedef struct ASTNode {
@@ -139,6 +139,7 @@ extern ASTNode* parse_while_statement(Parser* parser);
 extern ASTNode* parse_if_else_statement(Parser* parser);
 extern ASTNode* parse_load_statement(Parser* parser);
 extern ASTNode* parse_global_statement(Parser* parser);
+extern ASTNode* parse_goto_statement(Parser* parser);
 extern ASTNode* parse_postfix(Parser* parser);
 extern ASTNode* parse_list(Parser* parser);
 extern ASTNode* parse_function_definition(Parser* parser);

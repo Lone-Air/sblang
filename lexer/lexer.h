@@ -12,7 +12,7 @@ typedef enum _sbTk{
     _sbSym = 1, _sbNum, _sbStr, _sbKey,
     _sbEnd,
     _sbIf, _sbElse, _sbWhile, _sbFor, _sbLoad, _sbFunction, _sbReturn, _sbStruct, _sbGlobal,
-    _sbContinue, _sbBreak, _sbUnterminatedLine
+    _sbContinue, _sbBreak, _sbUnterminatedLine, _sbGoto
 }_sbTk;
 
 typedef struct _sbToken{

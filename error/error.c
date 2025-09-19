@@ -126,6 +126,7 @@ bool require_semicolon(Parser* parser) {
 }
 
 void bytecode_error(const char* format, ...) {
+    fprintf(stderr, "An error occurred during processing\n");
     fprintf(stderr, "BytecodeError: ");
     va_list args;
     va_start(args, format);
@@ -186,6 +187,7 @@ const char* vm_error_string(VMError error) {
         case VM_INVALID_OPCODE: return "InvalidOpcodeError";
         case VM_UNDEFINED_MEMBER: return "UndefinedMemberError";
         case VM_NOT_A_STRUCT: return "NotAStructError";
+        case VM_UNDEFINED_BLOCK: return "UndefinedBlockError";
         default: return "UnknownError";
     }
 }

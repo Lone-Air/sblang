@@ -114,7 +114,8 @@ void destroy_bytecode_generator(BytecodeGenerator* gen) {
                     inst->opcode == OP_FUNC_START ||
                     inst->opcode == OP_STRUCT_DEF || inst->opcode == OP_STRUCT_NEW ||
                     inst->opcode == OP_MEMBER_ACCESS || inst->opcode == OP_MEMBER_STORE ||
-                    inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL) {
+                    inst->opcode == OP_LOAD_GLOBAL || inst->opcode == OP_STORE_GLOBAL ||
+                    inst->opcode == OP_GOTO_DEF) {
                     if (inst->operand.str_value) free(inst->operand.str_value);
                 }
                 free(inst);
@@ -195,6 +196,7 @@ void emit_instruction(BytecodeGenerator* gen, OpCode opcode) {
     Instruction* inst = (Instruction*)malloc(sizeof(Instruction));
     if (!inst) return;
     
+    memset(inst, 0, sizeof(Instruction));
     inst->opcode = opcode;
     inst->operand.int_value = 0;
     inst->source_line = gen->current_source_line;
@@ -210,6 +212,7 @@ void emit_instruction_with_num(BytecodeGenerator* gen, OpCode opcode, double val
     Instruction* inst = (Instruction*)malloc(sizeof(Instruction));
     if (!inst) return;
     
+    memset(inst, 0, sizeof(Instruction));
     inst->opcode = opcode;
     inst->operand.num_value = value;
     inst->source_line = gen->current_source_line;
@@ -225,6 +228,7 @@ void emit_instruction_with_str(BytecodeGenerator* gen, OpCode opcode, const char
     Instruction* inst = (Instruction*)malloc(sizeof(Instruction));
     if (!inst) return;
     
+    memset(inst, 0, sizeof(Instruction));
     inst->opcode = opcode;
     inst->operand.str_value = _s_strdup(value);
     inst->source_line = gen->current_source_line;
@@ -240,6 +244,7 @@ void emit_instruction_with_int(BytecodeGenerator* gen, OpCode opcode, int value)
     Instruction* inst = (Instruction*)malloc(sizeof(Instruction));
     if (!inst) return;
     
+    memset(inst, 0, sizeof(Instruction));
     inst->opcode = opcode;
     inst->operand.int_value = value;
     inst->source_line = gen->current_source_line;
@@ -415,6 +420,7 @@ bool generate_expression(BytecodeGenerator* gen, ASTNode* node) {
                 emit_instruction_with_num(gen, OP_PUSH_NUM, -1);
                 emit_instruction(gen, OP_MUL);
             }
+            else if (strcmp(op, "+") == 0) emit_instruction(gen, OP_NOP);
             else {
                 bytecode_error("Unknown unary operator: %s", op);
                 return false;
@@ -670,6 +676,17 @@ bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
         
         case _sbFUNCTION_CALL:
             return generate_expression(gen, node);
+
+        case _sbGOTO:
+            emit_instruction_with_str(gen, OP_PUSH_IDENT, node->data.str_value);
+            emit_instruction(gen, OP_GOTO_BLOCK);
+            return true;
+
+        case _sbGOTO_DEF:
+            emit_instruction_with_str(gen, OP_GOTO_DEF, node->data.str_value);
+            //emit_instruction_with_str(gen, OP_PUSH_IDENT, node->data.str_value);
+            //emit_instruction(gen, OP_GOTO_DEF);
+            return true;
         
         default:
             /*if (node->type >= _sbNUMBER_LITERAL && node->type <= _sbLIST_ACCESS) {
@@ -866,6 +883,8 @@ void print_bytecode(BytecodeGenerator* gen) {
             case OP_STRUCT_NEW: printf("STRUCT_NEW %s", inst->operand.str_value); break;
             case OP_MEMBER_ACCESS: printf("MEMBER_ACCESS %s", inst->operand.str_value); break;
             case OP_MEMBER_STORE: printf("MEMBER_STORE %s", inst->operand.str_value); break;
+            case OP_GOTO_DEF: printf("GOTO_DEF %s", inst->operand.str_value); break;
+            case OP_GOTO_BLOCK: printf("GOTO"); break;
             case OP_LIST_NEW: printf("LIST_NEW %d", inst->operand.int_value); break;
             case OP_LIST_ACCESS: printf("LIST_ACCESS"); break;
             case OP_LIST_STORE: printf("LIST_STORE"); break;
@@ -949,6 +968,8 @@ bool save_bytecode(BytecodeGenerator* gen, const char* filename) {
                 case OP_STRUCT_NEW:
                 case OP_MEMBER_ACCESS:
                 case OP_FUNC_DEF:
+                case OP_GOTO_DEF:
+                case OP_GOTO_BLOCK:
                 case OP_MEMBER_STORE: {
                     size_t len = strlen(inst->operand.str_value) + 1;
                     fwrite(&len, sizeof(size_t), 1, file);
@@ -970,7 +991,7 @@ bool save_bytecode(BytecodeGenerator* gen, const char* filename) {
     }
     
     // Save functions metadata
-    count = gen->functions->count;
+    /*count = gen->functions->count;
     fwrite(&count, sizeof(size_t), 1, file);
     for (size_t i = 0; i < count; i++) {
         FunctionInfo* func = (FunctionInfo*)dynarray_get(gen->functions, i);
@@ -1016,7 +1037,7 @@ bool save_bytecode(BytecodeGenerator* gen, const char* filename) {
             fwrite(&len, sizeof(size_t), 1, file);
             fwrite(global, 1, len, file);
         }
-    }
+    }*/
     
     fclose(file);
     return true;
@@ -1056,6 +1077,7 @@ BytecodeGenerator* load_bytecode(const char* filename) {
         Instruction* inst = (Instruction*)malloc(sizeof(Instruction));
         if (!inst) break;
         
+        memset(inst, 0, sizeof(Instruction));
         inst->opcode = opcode;
         
         switch (opcode) {

@@ -45,8 +45,10 @@
                         tk_sl = l; \
                         tk_sp = p;
 
-char* const keyList[] = {"if", "else", "while", "for", "load", "function", "return", "struct", "global", "continue", "break", nullptr};
-_sbTk const typeList[] = {_sbIf, _sbElse, _sbWhile, _sbFor, _sbLoad, _sbFunction, _sbReturn, _sbStruct, _sbGlobal, _sbContinue, _sbBreak, -1};
+char* const keyList[] = {"if", "else", "while", "for", "load", "function", "return",
+                         "struct", "global", "continue", "break", "goto", nullptr};
+_sbTk const typeList[] = {_sbIf, _sbElse, _sbWhile, _sbFor, _sbLoad, _sbFunction, _sbReturn,
+                          _sbStruct, _sbGlobal, _sbContinue, _sbBreak, _sbGoto, -1};
 
 short backslash(char c){ // Transfer the backslash with character into single character
     switch (c){

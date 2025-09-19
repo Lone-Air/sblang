@@ -108,7 +108,10 @@ typedef enum {
 
     OP_BW_SFT,           /* Backward sf_traceback */
 
-    OP_HALT             /* Halt execution */
+    OP_HALT,             /* Halt execution */
+
+    OP_GOTO_BLOCK,       /* Jump to a user defined block */
+    OP_GOTO_DEF,         /* Define a block */
 } OpCode;
 
 /* Bytecode instruction structure */

@@ -231,6 +231,11 @@ ASTNode* parse_statement(Parser* parser) {
         return parse_global_statement(parser);
     }
 
+    // stmt_global
+    if (token->type == _sbGoto) {
+        return parse_goto_statement(parser);
+    }
+
     // stmt_if
     if (token->type == _sbIf) { // if (condition) { ... }
         return parse_if_else_statement(parser);
@@ -289,9 +294,13 @@ ASTNode* parse_statement(Parser* parser) {
 
     // process expression (included function_call)
     ASTNode* stmt = parse_assignment(parser);
-    if (stmt && !require_semicolon(parser)) {
-        free_ast(stmt);
-        return nullptr;
+    if (stmt) {
+        if (stmt->type != _sbGOTO_DEF) {
+            if (!require_semicolon(parser)) {
+                free_ast(stmt);
+                return nullptr;
+            }
+        }
     }
 
     return stmt;
@@ -621,6 +630,35 @@ ASTNode* parse_global_statement(Parser* parser) {
     }
 
     return global_stmt;
+}
+
+ASTNode* parse_goto_statement(Parser* parser) {
+    next(parser); // remove 'global'
+
+    ASTNode* goto_stmt = create_ast_node(_sbGOTO, parser);
+
+    // create variable list storage
+
+    // parse goto block name
+    _sbToken* token = peek(parser);
+
+    if (token->type == _sbKey || token->type == _sbStr) {
+        next(parser);
+        goto_stmt->data.str_value = _s_strdup(token->tk);
+    }
+    else {
+        syntaxError(parser, "expected a block after 'goto'");
+        free_ast(goto_stmt);
+        return nullptr;
+    }
+
+    // check & remove ';'
+    if (!require_semicolon(parser)) {
+        free_ast(goto_stmt);
+        return nullptr;
+    }
+
+    return goto_stmt;
 }
 
 ASTNode* parse_load_statement(Parser* parser) {
@@ -1431,7 +1469,17 @@ ASTNode* parse_primary(Parser* parser) {
     // identifier
     if (token->type == _sbKey) {
         next(parser);
-        ASTNode* node = create_ast_node(_sbIDENTIFIER, parser);
+        ASTNode* node;
+
+        if (match_token(parser, ":")) {
+            next(parser); // goto definition
+
+            node = create_ast_node(_sbGOTO_DEF, parser);
+            node->data.str_value = _s_strdup(token->tk);
+            return node;
+        } // Not a goto definition
+
+        node = create_ast_node(_sbIDENTIFIER, parser);
         node->data.str_value = _s_strdup(token->tk);
         return node;
     }
@@ -1567,6 +1615,8 @@ void free_ast(ASTNode* node) {
             break;
         case _sbSTRING_LITERAL:
         case _sbIDENTIFIER:
+        case _sbGOTO_DEF:
+        case _sbGOTO:
             if (node->data.str_value) {
                 free(node->data.str_value);
                 node->data.str_value = nullptr;

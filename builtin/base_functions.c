@@ -130,6 +130,8 @@ const char* v_type(_sbValue value) {
             return "instance";
         case VAL_LIST:
             return "list";
+        case VAL_GOTO_BLOCK:
+            return "block";
         default:
             return "unknown";
     }
@@ -276,6 +278,16 @@ static _sbValue toString_internal(_sbVM* vm, _sbValue value, bool _repr, Address
             strcat(_s1, func_name);
             strcat(_s1, ":");
             strcat(_s1, source_file);
+            strcat(_s1, ">");
+            result = _s_strdup(_s1);
+            free(_s1);
+            break;
+        }
+        case VAL_GOTO_BLOCK: {
+            const char* block_name = value.as.block.block_name ? value.as.block.block_name : "<unnamed>";
+            char* _s1 = calloc(9 + strlen(block_name), sizeof(char));
+            strcpy(_s1, "<block:");
+            strcat(_s1, block_name);
             strcat(_s1, ">");
             result = _s_strdup(_s1);
             free(_s1);
@@ -466,6 +478,7 @@ static _sbValue builtin_input(_sbVM* vm, _sbValue* args, int arg_count) {
     }
 
 #ifndef ENABLE_READLINE
+    char* buffer;
     buffer = malloc(sizeof(char));
     int length = 0;
     int ch;
@@ -485,7 +498,7 @@ static _sbValue builtin_input(_sbVM* vm, _sbValue* args, int arg_count) {
     }
 
     buffer[length] = '\0';
-    _sbValue result = create_string(buffer);
+    _sbValue result = create_string(vm, buffer);
     free(buffer);
 
     return result;
