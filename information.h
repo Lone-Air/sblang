@@ -7,6 +7,7 @@
 #ifndef SBLANG_INFORMATION_H
 #define SBLANG_INFORMATION_H
 
+#define AUTHOR "Laman28"
 #define VERSION "1.4.1"
 
 #endif //SBLANG_INFORMATION_H
