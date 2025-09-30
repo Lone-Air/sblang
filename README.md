@@ -60,7 +60,7 @@ load math; // Load the built-in module math
 
 // This is a stmt_for, its syntax like other known languages
 // stmt_for: for(statment_1; statment_2; statment_3){ loop_body }
-for(i = 0; i < 10; i = i + 1){ // syntax like `i++` is unsupported
+for(i = 0; i < 10; i++){
     print(i, '\n');
 }
 
@@ -68,7 +68,7 @@ j = 0; // Set local variable j to 0
 
 // stmt_while: while(condition){ loop_body; }
 while(j < 100){
-    j = j + 1;
+    j++;
 }
 
 // stmt_if: if(condition){ then_branch } else { else_branch }

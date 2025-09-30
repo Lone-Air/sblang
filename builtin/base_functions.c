@@ -12,6 +12,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <ctype.h>
+#include <unistd.h>
 
 /* Structure to track visited list addresses for cycle detection */
 typedef struct {
@@ -206,50 +208,94 @@ static void remove_address(AddressSet* set, void* addr) {
     }
 }
 
-char *repr(const char *s) {
-    size_t len = strlen(s);
-
-    char *buf = malloc(len * 4 + 3);
-    if (!buf) return nullptr;
-
-    char quote = '\'';
-    if (strchr(s, '\'')) {
-        quote = '"';
+char* repr(const char* str) {
+    if (str == nullptr) {
+        char* result = _s_strdup("null");
+        return result;
     }
 
-    char *p = buf;
-    *p++ = quote;
+    // caculate for the buffer size
+    size_t len = strlen(str);
+    size_t buf_size = 2; // ''
 
     for (size_t i = 0; i < len; i++) {
-        unsigned char c = (unsigned char)s[i];
+        unsigned char c = (unsigned char)str[i];
         switch (c) {
-            case '\n': *p++='\\'; *p++='n'; break;
-            case '\t': *p++='\\'; *p++='t'; break;
-            case '\r': *p++='\\'; *p++='r'; break;
-            case '\f': *p++='\\'; *p++='f'; break;
-            case '\v': *p++='\\'; *p++='v'; break;
-            case '\\': *p++='\\'; *p++='\\'; break;
             case '\'':
-                if (quote == '\'') { *p++='\\'; *p++='\''; }
-                else *p++='\'';
-                break;
-            case '"':
-                if (quote == '"') { *p++='\\'; *p++='"'; }
-                else *p++='"';
+            case '\\':
+            case '\n':
+            case '\r':
+            case '\t':
+            case '\b':
+            case '\f':
+                buf_size += 2; // \ + x
                 break;
             default:
-                if (isprint(c)) {
-                    *p++ = c;
+                if (c < 32 || c >= 127) {
+                    buf_size += 4; // \xNN
                 } else {
-                    sprintf(p, "\\x%02x", c);
-                    p += 4;
+                    buf_size += 1;
+                }
+        }
+    }
+    buf_size += 1; // null
+
+    // Allocate memory
+    char* buffer = malloc(buf_size);
+    if (buffer == nullptr) {
+        return nullptr;
+    }
+
+    // Process
+    size_t pos = 0;
+    buffer[pos++] = '\'';
+
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)str[i];
+        switch (c) {
+            case '\'':
+                buffer[pos++] = '\\';
+                buffer[pos++] = '\'';
+                break;
+            case '\\':
+                buffer[pos++] = '\\';
+                buffer[pos++] = '\\';
+                break;
+            case '\n':
+                buffer[pos++] = '\\';
+                buffer[pos++] = 'n';
+                break;
+            case '\r':
+                buffer[pos++] = '\\';
+                buffer[pos++] = 'r';
+                break;
+            case '\t':
+                buffer[pos++] = '\\';
+                buffer[pos++] = 't';
+                break;
+            case '\b':
+                buffer[pos++] = '\\';
+                buffer[pos++] = 'b';
+                break;
+            case '\f':
+                buffer[pos++] = '\\';
+                buffer[pos++] = 'f';
+                break;
+            default:
+                if (c < 32 || c >= 127) {
+                    // Non-printable characters are represented by \xNN
+                    sprintf(&buffer[pos], "\\x%02x", c);
+                    pos += 4;
+                } else {
+                    buffer[pos++] = c;
                 }
         }
     }
 
-    *p++ = quote;
-    *p = '\0';
-    return buf;
+    buffer[pos++] = '\'';
+    buffer[pos] = '\0';
+
+    return buffer;
 }
 
 /* Internal toString with cycle detection */
@@ -490,6 +536,7 @@ static _sbValue builtin_input(_sbVM* vm, _sbValue* args, int arg_count) {
         if (ch == EOF) {
             putchar('\n');
             free(buffer);
+            exit(0);
             return create_null();
         }
 

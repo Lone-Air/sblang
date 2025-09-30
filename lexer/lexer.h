@@ -23,7 +23,7 @@ typedef struct _sbToken{
     int type;
 }_sbToken;
 
-extern short backslash(char c);
+extern char backslash(char c);
 extern _sbTk _keyword_detect(const char* key);
 
 extern _sbToken* _sbPreLexer(const char* src);

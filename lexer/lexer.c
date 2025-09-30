@@ -50,7 +50,7 @@ char* const keyList[] = {"if", "else", "while", "for", "load", "function", "retu
 _sbTk const typeList[] = {_sbIf, _sbElse, _sbWhile, _sbFor, _sbLoad, _sbFunction, _sbReturn,
                           _sbStruct, _sbGlobal, _sbContinue, _sbBreak, _sbGoto, -1};
 
-short backslash(char c){ // Transfer the backslash with character into single character
+char backslash(char c){ // Transfer the backslash with character into single character
     switch (c){
         case '\0': return -1;
         case '\\': return '\\';
@@ -60,6 +60,7 @@ short backslash(char c){ // Transfer the backslash with character into single ch
         case 'r':  return '\r';
         case 'f':  return '\f';
         case 'v':  return '\v';
+        case 'x':  return -4;
         case '\n': return -3;
     }
     return -2;
@@ -472,9 +473,15 @@ end_of_note:
                     RESET();
                 }
                 NEXT_C(c, src);
-                short _backslash = backslash(c);
+                char _backslash = backslash(c);
                 if(_backslash == -1){ // A backslash fell at the end of the file
-                    lexError("Unexpected EOF appeared", pos, line);
+                    if (!repl_check_syntax)
+                      lexError("Unexpected end of line", pos, line);
+                    UPDATE(nullptr, col, line, pos, _sbEnd);
+                    freeTkList(tks);
+                    delete_array(buffer);
+                    if (repl_check_syntax)
+                      incomplete_syntax = true;
                     return nullptr;
                 }
                 else if(_backslash == -2){
@@ -482,12 +489,58 @@ end_of_note:
                     sprintf(errinfo, "Invalid backslash transfer '\\%c'", c);
                     lexError(errinfo, pos, line);
                     free(errinfo);
+                    UPDATE(nullptr, col, line, pos, _sbEnd);
+                    freeTkList(tks);
+                    delete_array(buffer);
                     return nullptr;
                 }
                 else if(_backslash == -3){
                     line ++;
                     pos = 0;
                     break;
+                }
+                else if(_backslash == -4) {
+                    // \xNN
+                    char p = 0;
+                    // First N
+                    NEXT_C(c, src);
+                    switch(c) {
+                        case '0': case '1': case '2': case '3': case '4':
+                        case '5': case '6': case '7': case '8': case '9':
+                            p = (c - 48) * 10;
+                            break;
+                        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+                            p = (c - 92) * 10;
+                            break;
+                        default:
+                            char* errinfo = _s_strdup("can't decode bytes in position 0-1: truncated \\xNN escape");
+                            lexError(errinfo, pos, line);
+                            free(errinfo);
+                            UPDATE(nullptr, col, line, pos, _sbEnd);
+                            freeTkList(tks);
+                            delete_array(buffer);
+                            return nullptr;
+                    }
+                    // Second N
+                    NEXT_C(c, src);
+                    switch(c) {
+                        case '0': case '1': case '2': case '3': case '4':
+                        case '5': case '6': case '7': case '8': case '9':
+                            p += c - 48;
+                            break;
+                        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+                            p += c - 92;
+                            break;
+                        default:
+                            char* errinfo = _s_strdup("can't decode bytes in position 0-2: truncated \\xNN escape");
+                            lexError(errinfo, pos, line);
+                            free(errinfo);
+                            UPDATE(nullptr, col, line, pos, _sbEnd);
+                            freeTkList(tks);
+                            delete_array(buffer);
+                            return nullptr;
+                    }
+                    append(buffer, (char)p, nullptr);
                 }
                 else{
                     append(buffer, _backslash, nullptr);
@@ -577,7 +630,13 @@ end_of_note:
 endlexer:
 
     if(strmode){ // File had ended, but the string syntex still doesn't end
-        lexError("UnexpectedEOF", pos, line);
+        if (!repl_check_syntax)
+            lexError("Unexpected end of line", pos, line);
+        UPDATE(nullptr, col, line, pos, _sbEnd);
+        freeTkList(tks);
+        delete_array(buffer);
+        if (repl_check_syntax)
+            incomplete_syntax = true;
         return nullptr;
     }
 
@@ -662,6 +721,267 @@ _sbToken* _sbLexer(const char* src){ // Final Lexer
         }
         else if (_tk.type == _sbSym){ // Token is symbol
             if (!(strcmp(_tk.tk, ".") == 0)){ // Check whether the symbol is `.`
+
+                if (strcmp(_tk.tk, "+") == 0) { // check for '++'
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "+") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("++", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "-") == 0) { // check for '--'
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "-") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("--", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "+") == 0) { // check for '+='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("+=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "-") == 0) { // check for '-='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("-=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "*") == 0) { // check for '*='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("*=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "/") == 0) { // check for '/='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("/=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "|") == 0) { // check for '|='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("|=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "&") == 0) { // check for '&='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("&=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, ">>") == 0) { // check for '>>='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE(">>=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "<<") == 0) { // check for '<<='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("<<=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "**") == 0) { // check for '**='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("**=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "^") == 0) { // check for '^='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("^=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
+                if (strcmp(_tk.tk, "%") == 0) { // check for '%='
+                    _tk_l = _tk;
+                    _tk = *(pre ++);
+                    switch(_tk.type){
+                        case _sbEnd: // Is the last token
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            goto end_of_flexer;
+                        case _sbSym:
+                            if (strcmp(_tk.tk, "=") != 0) {
+                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                break;
+                            }
+                            UPDATE("%=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                            continue;
+                        default: // others
+                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                            break;
+                    }
+                }
+
                 UPDATE(_tk.tk, _tk.column, _tk.line, _tk.pos, _tk.type); // others, save it only
                 continue;
             }
@@ -677,6 +997,7 @@ _sbToken* _sbLexer(const char* src){ // Final Lexer
                 strcat(buff, ".");
                 strcat(buff, _tk.tk);
                 UPDATE(buff, _tk.column, _tk.line, _tk.pos, _sbNum);
+                free(buff);
                 break;
               default: // .<others>
                 UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);

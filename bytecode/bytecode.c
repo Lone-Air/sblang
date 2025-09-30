@@ -538,6 +538,71 @@ bool generate_statement(BytecodeGenerator* gen, ASTNode* node) {
             }
             return true;
         }
+
+        case _sbSIMPLE_ASSIGNMENT: {
+            ASTNode* left = node->data.assignment.left;
+            const char* op = node->data.assignment.op;
+
+            emit_instruction_with_str(gen, OP_LOAD_VAR, left->data.str_value);
+
+            if (strcmp(op, "++") == 0) {
+                emit_instruction_with_num(gen, OP_PUSH_NUM, 1);
+                emit_instruction(gen, OP_ADD);
+            }
+            else if (strcmp(op, "--") == 0) {
+                emit_instruction_with_num(gen, OP_PUSH_NUM, 1);
+                emit_instruction(gen, OP_SUB);
+            }
+            else
+                if (!generate_expression(gen, node->data.assignment.right)) return false;
+
+            if (strcmp(op, "+=") == 0)
+                emit_instruction(gen, OP_ADD);
+            else if (strcmp(op, "-=") == 0)
+                emit_instruction(gen, OP_SUB);
+            else if (strcmp(op, "*=") == 0)
+                emit_instruction(gen, OP_MUL);
+            else if (strcmp(op, "/=") == 0)
+                emit_instruction(gen, OP_DIV);
+            else if (strcmp(op, "%=") == 0)
+                emit_instruction(gen, OP_MOD);
+            else if (strcmp(op, "^=") == 0)
+                emit_instruction(gen, OP_BIT_XOR);
+            else if (strcmp(op, "<<=") == 0)
+                emit_instruction(gen, OP_BIT_LSHIFT);
+            else if (strcmp(op, ">>=") == 0)
+                emit_instruction(gen, OP_BIT_RSHIFT);
+            else if (strcmp(op, "|=") == 0)
+                emit_instruction(gen, OP_BIT_OR);
+            else if (strcmp(op, "&=") == 0)
+                emit_instruction(gen, OP_BIT_AND);
+            else if (strcmp(op, "**=") == 0)
+                emit_instruction(gen, OP_POW);
+            else if (strcmp(op, "++") == 0 || strcmp(op, "--") == 0){}
+            else {
+                bytecode_error("Invalid assignment operator");
+                return false;
+            }
+
+            if (left->type == _sbIDENTIFIER) {
+                if (checkfor_global(gen, left->data.str_value) == -1)
+                    emit_instruction_with_str(gen, OP_STORE_VAR, left->data.str_value);
+                else
+                    emit_instruction_with_str(gen, OP_STORE_GLOBAL, left->data.str_value);
+            } else if (left->type == _sbMEMBER_ACCESS) {
+                if (!generate_expression(gen, left->data.member_access.object)) return false;
+                emit_instruction_with_str(gen, OP_MEMBER_STORE,
+                    left->data.member_access.member->data.str_value);
+            } else if (left->type == _sbLIST_ACCESS) {
+                if (!generate_expression(gen, left->data.list_access.list)) return false;
+                if (!generate_expression(gen, left->data.list_access.index)) return false;
+                emit_instruction(gen, OP_LIST_STORE);
+            } else {
+                bytecode_error("Invalid assignment target");
+                return false;
+            }
+            return true;
+        }
         
         case _sbIF: {
             if (!generate_expression(gen, node->data.if_stmt.condition)) return false;

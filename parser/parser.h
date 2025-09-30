@@ -16,7 +16,8 @@ typedef enum _sbNType{
     _sbFUNCTION_CALL, _sbIDENTIFIER, _sbARGUMENTS, _sbMODULE_LIST, _sbPARAMETER_LIST, _sbMEMBER_LIST, _sbGLOBAL_LIST,
     _sbNUMBER_LITERAL, _sbSTRING_LITERAL, _sbLIST_LITERAL,
     _sbBINARY_LITERAL, _sbUNARY_LITERAL, _sbNOTHING, _sbCONTINUE, _sbBREAK,
-    _sbASSIGNMENT, _sbLIST_ACCESS, _sbGOTO, _sbGOTO_DEF
+    _sbASSIGNMENT, _sbLIST_ACCESS, _sbGOTO, _sbGOTO_DEF,
+    _sbSIMPLE_ASSIGNMENT
 }_sbNType;
 
 typedef struct ASTNode {
@@ -91,6 +92,7 @@ typedef struct ASTNode {
         struct { // <left> = <right>
             struct ASTNode* left;   // variable
             struct ASTNode* right;  // expr
+            const char* op;
         } assignment;
     } data;
 } ASTNode;

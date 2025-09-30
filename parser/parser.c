@@ -100,7 +100,7 @@ _sbToken* peek_next(_sbTkState* parser) {
 }
 
 _sbToken* peek_ahead(Parser* parser, int offset) {
-    int pos = parser->position + offset;
+    int pos = parser->position - offset;
     if (pos >= parser->size) return nullptr;
     return &parser->tk[pos];
 }
@@ -938,6 +938,51 @@ ASTNode* parse_assignment(Parser* parser) {
         if (assignment) {
             assignment->data.assignment.left = left;
             assignment->data.assignment.right = right;
+            assignment->data.assignment.op = "=";
+        }
+
+        return assignment;
+    }
+
+    if (left && (
+        match_token(parser, "+=") || match_token(parser, "-=") ||
+        match_token(parser, "*=") || match_token(parser, "/=") ||
+        match_token(parser, "|=") || match_token(parser, "&=") ||
+        match_token(parser, ">>=") || match_token(parser, "<<=") ||
+        match_token(parser, "**=") || match_token(parser, "^=") ||
+        match_token(parser, "%=")
+        )) {
+        const char* op = peek(parser)->tk;
+        next(parser); // remove '?='
+
+        ASTNode* right = parse_expression(parser);
+
+        if (!right) {
+            // Lack of expression of right: x ?= <lacked>
+            syntaxError(parser, "expected expression after '%s'", op);
+            free_ast(left);
+            return nullptr;
+        }
+
+        ASTNode* assignment = create_ast_node(_sbSIMPLE_ASSIGNMENT, parser);
+        if (assignment) {
+            assignment->data.assignment.left = left;
+            assignment->data.assignment.right = right;
+            assignment->data.assignment.op = op;
+        }
+
+        return assignment;
+    }
+
+    if (left && (match_token(parser, "++") || match_token(parser, "--"))) {
+        const char* op = peek(parser)->tk;
+        next(parser); // remove '??'
+
+        ASTNode* assignment = create_ast_node(_sbSIMPLE_ASSIGNMENT, parser);
+        if (assignment) {
+            assignment->data.assignment.left = left;
+            assignment->data.assignment.right = nullptr;
+            assignment->data.assignment.op = op;
         }
 
         return assignment;
@@ -1601,6 +1646,7 @@ void free_ast(ASTNode* node) {
             free_ast(node->data.for_stmt.body);
             break;
         case _sbASSIGNMENT:
+        case _sbSIMPLE_ASSIGNMENT:
             free_ast(node->data.assignment.left);
             free_ast(node->data.assignment.right);
             break;

@@ -548,6 +548,7 @@ static char* _sbl_input(const char *s) {
         if (ch == EOF) {
             putchar('\n');
             free(buffer);
+            exit(0);
             buffer = nullptr;
         }
 
@@ -578,6 +579,7 @@ void run_repl() {
     printf(") on %s [compiled on %s %s]\n", COMPILED_FOR_PLATFORM, __DATE__, __TIME__);
 
     while (true) {
+        incomplete_syntax = false;
         char* buffer = _sbl_input("> ");
 
         if (buffer == nullptr) break;
@@ -593,6 +595,7 @@ void run_repl() {
         replcs(true);
         check:
         _sbToken* tk = _sbLexer(buf);
+        if (incomplete_syntax) goto addition_input;
         if (!tk) continue;
 
         Parser* parser = create_tkstate(tk);
@@ -607,6 +610,7 @@ void run_repl() {
             destroy_tkstate(parser);
 
             addition_input:
+            incomplete_syntax = false;
             char* continue_input = _sbl_input(">> ");
             if (continue_input == nullptr) break;
             if (is_empty(continue_input)) goto addition_input;
