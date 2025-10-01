@@ -722,7 +722,7 @@ _sbToken* _sbLexer(const char* src){ // Final Lexer
         else if (_tk.type == _sbSym){ // Token is symbol
             if (!(strcmp(_tk.tk, ".") == 0)){ // Check whether the symbol is `.`
 
-                if (strcmp(_tk.tk, "+") == 0) { // check for '++'
+                if (strcmp(_tk.tk, "+") == 0) { // check for '++' or '+='
                     _tk_l = _tk;
                     _tk = *(pre ++);
                     switch(_tk.type){
@@ -731,8 +731,13 @@ _sbToken* _sbLexer(const char* src){ // Final Lexer
                             goto end_of_flexer;
                         case _sbSym:
                             if (strcmp(_tk.tk, "+") != 0) {
-                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
-                                break;
+                                if (strcmp(_tk.tk, "=") != 0) { // +=
+                                    UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                    break;
+                                }
+
+                                UPDATE("+=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                                continue;
                             }
                             UPDATE("++", _tk.column, _tk.line, _tk.pos, _sbSym);
                             continue;
@@ -742,7 +747,7 @@ _sbToken* _sbLexer(const char* src){ // Final Lexer
                     }
                 }
 
-                if (strcmp(_tk.tk, "-") == 0) { // check for '--'
+                if (strcmp(_tk.tk, "-") == 0) { // check for '--' or '-='
                     _tk_l = _tk;
                     _tk = *(pre ++);
                     switch(_tk.type){
@@ -751,50 +756,15 @@ _sbToken* _sbLexer(const char* src){ // Final Lexer
                             goto end_of_flexer;
                         case _sbSym:
                             if (strcmp(_tk.tk, "-") != 0) {
-                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
-                                break;
+                                if (strcmp(_tk.tk, "=") != 0) { // -=
+                                    UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
+                                    break;
+                                }
+
+                                UPDATE("-=", _tk.column, _tk.line, _tk.pos, _sbSym);
+                                continue;
                             }
                             UPDATE("--", _tk.column, _tk.line, _tk.pos, _sbSym);
-                            continue;
-                        default: // others
-                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
-                            break;
-                    }
-                }
-
-                if (strcmp(_tk.tk, "+") == 0) { // check for '+='
-                    _tk_l = _tk;
-                    _tk = *(pre ++);
-                    switch(_tk.type){
-                        case _sbEnd: // Is the last token
-                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
-                            goto end_of_flexer;
-                        case _sbSym:
-                            if (strcmp(_tk.tk, "=") != 0) {
-                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
-                                break;
-                            }
-                            UPDATE("+=", _tk.column, _tk.line, _tk.pos, _sbSym);
-                            continue;
-                        default: // others
-                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
-                            break;
-                    }
-                }
-
-                if (strcmp(_tk.tk, "-") == 0) { // check for '-='
-                    _tk_l = _tk;
-                    _tk = *(pre ++);
-                    switch(_tk.type){
-                        case _sbEnd: // Is the last token
-                            UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
-                            goto end_of_flexer;
-                        case _sbSym:
-                            if (strcmp(_tk.tk, "=") != 0) {
-                                UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
-                                break;
-                            }
-                            UPDATE("-=", _tk.column, _tk.line, _tk.pos, _sbSym);
                             continue;
                         default: // others
                             UPDATE(_tk_l.tk, _tk_l.column, _tk_l.line, _tk_l.pos, _tk_l.type);
